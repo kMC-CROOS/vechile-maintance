@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/Input';
 import { Colors, FontSizes, MinTouchTarget, Radii, Spacing } from '@/constants/theme';
 import { useVehicle } from '@/context/VehicleContext';
 import { apiFetch } from '@/services/api';
+import { DatePickerField } from '@/components/ui/DatePickerField';
 
 export default function DocumentsScreen() {
   const router = useRouter();
@@ -247,12 +248,11 @@ export default function DocumentsScreen() {
 
             <View style={styles.divider} />
 
-            <Input
+            <DatePickerField
               label="Valid Until (YYYY-MM-DD)"
               placeholder="2027-04-30"
               value={taxValidUntil}
               onChangeText={setTaxValidUntil}
-              isMono
             />
 
             <Input
@@ -309,20 +309,18 @@ export default function DocumentsScreen() {
               onChangeText={setInsurancePolicyNumber}
             />
 
-            <Input
+            <DatePickerField
               label="Start Date (YYYY-MM-DD)"
               placeholder="2026-01-01"
               value={insuranceStartDate}
               onChangeText={setInsuranceStartDate}
-              isMono
             />
 
-            <Input
+            <DatePickerField
               label="Expiry Date (YYYY-MM-DD)"
               placeholder="2027-01-01"
               value={insuranceExpiryDate}
               onChangeText={setInsuranceExpiryDate}
-              isMono
             />
 
             <Text style={styles.label}>Document Photo</Text>
@@ -355,20 +353,18 @@ export default function DocumentsScreen() {
 
             <View style={styles.divider} />
 
-            <Input
+            <DatePickerField
               label="Start Date (YYYY-MM-DD)"
               placeholder="2024-01-01"
               value={warrantyStartDate}
               onChangeText={setWarrantyStartDate}
-              isMono
             />
 
-            <Input
+            <DatePickerField
               label="Expiry Date (YYYY-MM-DD)"
               placeholder="2027-01-01"
               value={warrantyExpiryDate}
               onChangeText={setWarrantyExpiryDate}
-              isMono
             />
 
             <Text style={styles.label}>Document Photo</Text>

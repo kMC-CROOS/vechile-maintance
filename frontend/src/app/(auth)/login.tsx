@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -11,11 +11,19 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import * as AuthSession from 'expo-auth-session';
+import * as Google from 'expo-auth-session/providers/google';
+import * as WebBrowser from 'expo-web-browser';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { PasswordField } from '@/components/ui/PasswordField';
 import { Colors, FontSizes, MinTouchTarget, Radii, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+
+WebBrowser.maybeCompleteAuthSession();
+
+const googleClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ?? '';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -26,6 +34,24 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [googleError, setGoogleError] = useState('');
+  const processedGoogleToken = useRef<string | null>(null);
+
+  const [googleRequest, googleResponse, promptGoogleAsync] = Google.useIdTokenAuthRequest({
+    clientId: googleClientId,
+    webClientId: googleClientId,
+  });
+
+  useEffect(() => {
+    const defaultRedirectUri = AuthSession.makeRedirectUri();
+    console.log('[Google Auth] redirectUri is not passed explicitly; using expo-auth-session default');
+    console.log('[Google Auth] AuthSession.makeRedirectUri()', defaultRedirectUri);
+    console.log('[Google Auth] request.redirectUri', googleRequest?.redirectUri);
+    if (typeof window !== 'undefined') {
+      console.log('[Google Auth] window.location.origin', window.location.origin);
+      console.log('[Google Auth] window.location.href', window.location.href);
+    }
+  }, [googleRequest]);
 
   const handleLogin = async () => {
     setErrors({});
@@ -57,20 +83,77 @@ export default function LoginScreen() {
     }
   };
 
+  useEffect(() => {
+    if (!googleResponse) return;
+
+    if (googleResponse.type === 'success') {
+      const idToken = googleResponse.params.id_token;
+      if (!idToken) {
+        setGoogleError('Google did not return an ID token. Please try again.');
+        setGoogleLoading(false);
+        return;
+      }
+      if (processedGoogleToken.current === idToken) {
+        return;
+      }
+      processedGoogleToken.current = idToken;
+
+      setGoogleLoading(true);
+      googleLogin(idToken)
+        .then(() => {
+          router.replace('/');
+        })
+        .catch((err: any) => {
+          const message = err.message || 'Could not authenticate with Google';
+          setGoogleError(message);
+          Alert.alert('Google Sign In Failed', message);
+        })
+        .finally(() => {
+          setGoogleLoading(false);
+        });
+      return;
+    }
+
+    if (googleResponse.type === 'error') {
+      const message = googleResponse.error?.message || 'Google sign-in failed. Please try again.';
+      setGoogleError(message);
+      Alert.alert('Google Sign In Failed', message);
+      return;
+    }
+
+    if (googleResponse.type === 'cancel' || googleResponse.type === 'dismiss') {
+      setGoogleError('Google sign-in was cancelled.');
+    }
+  }, [googleLogin, googleResponse, router]);
+
   const handleGoogleLogin = async () => {
     setErrors({});
+    setGoogleError('');
+
+    if (!googleClientId) {
+      const message = 'Google sign-in is not configured.';
+      setGoogleError(message);
+      Alert.alert('Google Sign In Failed', message);
+      return;
+    }
+
     setGoogleLoading(true);
     try {
-      const googleUserEmail = email.trim() && email.includes('@') ? email.trim() : `driver_${Math.floor(1000 + Math.random() * 9000)}@gmail.com`;
-      await googleLogin({
-        email: googleUserEmail,
-        name: 'Google User',
-        google_id: `google_${Date.now()}`,
-      });
-      router.replace('/');
+      const result = await promptGoogleAsync();
+      if (result.type === 'cancel' || result.type === 'dismiss') {
+        setGoogleError('Google sign-in was cancelled.');
+        setGoogleLoading(false);
+      } else if (result.type === 'error') {
+        const message = result.error?.message || 'Google sign-in failed. Please try again.';
+        setGoogleError(message);
+        Alert.alert('Google Sign In Failed', message);
+        setGoogleLoading(false);
+      }
+      // success is handled in the response effect so the ID token is processed once
     } catch (err: any) {
-      Alert.alert('Google Sign In Failed', err.message || 'Could not authenticate with Google');
-    } finally {
+      const message = err.message || 'Could not start Google sign-in';
+      setGoogleError(message);
+      Alert.alert('Google Sign In Failed', message);
       setGoogleLoading(false);
     }
   };
@@ -98,12 +181,11 @@ export default function LoginScreen() {
             error={errors.email}
           />
 
-          <Input
+          <PasswordField
             label="Password"
             placeholder="••••••••"
             value={password}
             onChangeText={setPassword}
-            secureTextEntry
             error={errors.password}
           />
 
@@ -133,6 +215,7 @@ export default function LoginScreen() {
               <Text style={styles.googleBtnText}>G  Continue with Google</Text>
             )}
           </TouchableOpacity>
+          {googleError ? <Text style={styles.googleErrorText}>{googleError}</Text> : null}
         </Card>
 
         <View style={styles.footer}>
@@ -222,6 +305,12 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     fontWeight: '600',
     fontSize: FontSizes.sm,
+  },
+  googleErrorText: {
+    color: Colors.error,
+    fontSize: FontSizes.xs,
+    marginTop: Spacing.p8,
+    textAlign: 'center',
   },
   footer: {
     flexDirection: 'row',

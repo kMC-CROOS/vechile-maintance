@@ -12,7 +12,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import Svg, { Path, Rect } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
+import { DatePickerField } from '@/components/ui/DatePickerField';
 
 interface AddExpenseModalProps {
   visible: boolean;
@@ -40,13 +41,6 @@ const EXPENSE_CATEGORIES = [
 const CloseIcon = () => (
   <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
     <Path d="M18 6L6 18M6 6L18 18" stroke="#64748B" strokeWidth="2.2" strokeLinecap="round" />
-  </Svg>
-);
-
-const CalendarIcon = () => (
-  <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-    <Rect x="3" y="4" width="18" height="18" rx="3" stroke="#2563EB" strokeWidth="2" />
-    <Path d="M16 2V6M8 2V6M3 10H21" stroke="#2563EB" strokeWidth="2" strokeLinecap="round" />
   </Svg>
 );
 
@@ -125,15 +119,7 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
               </View>
               <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
                 <Text style={styles.label}>Date</Text>
-                <View style={styles.dateWrapper}>
-                  <TextInput
-                    style={styles.dateInput}
-                    value={expenseDate}
-                    onChangeText={setExpenseDate}
-                    placeholder="YYYY-MM-DD"
-                  />
-                  <CalendarIcon />
-                </View>
+                <DatePickerField value={expenseDate} onChangeText={setExpenseDate} />
               </View>
             </View>
 

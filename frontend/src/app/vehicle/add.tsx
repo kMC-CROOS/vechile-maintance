@@ -13,8 +13,9 @@ import {
   View,
 } from 'react-native';
 import { useNavigation, useRouter } from 'expo-router';
-import Svg, { Path, Rect } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
 import { VehicleCategoryCardsAnimated } from '@/components/ui/VehicleCategoryCardsAnimated';
+import { DatePickerField } from '@/components/ui/DatePickerField';
 
 // Available vehicle types
 const VEHICLE_TYPES = ['Car', 'Bike', 'Scooter', 'Truck'] as const;
@@ -23,15 +24,6 @@ type VehicleType = (typeof VEHICLE_TYPES)[number];
 // Available fuel types
 const FUEL_TYPES = ['Petrol', 'Diesel', 'Electric', 'CNG', 'Hybrid'] as const;
 type FuelType = (typeof FUEL_TYPES)[number];
-
-// Reusable Calendar SVG Icon
-const CalendarIcon = ({ color = '#64748B', size = 20 }: { color?: string; size?: number }) => (
-  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-    <Rect x="3" y="4" width="18" height="18" rx="3" stroke={color} strokeWidth="2" />
-    <Path d="M16 2V6M8 2V6M3 10H21" stroke={color} strokeWidth="2" strokeLinecap="round" />
-    <Path d="M8 14H8.01M12 14H12.01M16 14H16.01M8 18H8.01M12 18H12.01" stroke={color} strokeWidth="2" strokeLinecap="round" />
-  </Svg>
-);
 
 // Back Arrow SVG Icon
 const BackIcon = ({ color = '#0F172A', size = 22 }: { color?: string; size?: number }) => (
@@ -289,27 +281,14 @@ export default function AddVehicleScreen() {
             {/* Insurance Expiry Date */}
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Insurance Expiry Date</Text>
-              <View style={[styles.dateInputWrapper, focusedField === 'insuranceDate' && styles.inputFocused]}>
-                <TextInput
-                  style={styles.dateInput}
-                  placeholder="Select Insurance Expiry Date"
-                  placeholderTextColor="#94A3B8"
-                  value={insuranceExpiryDate}
-                  onChangeText={setInsuranceExpiryDate}
-                  onFocus={() => setFocusedField('insuranceDate')}
-                  onBlur={() => setFocusedField(null)}
-                />
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  style={styles.calendarIconContainer}
-                  onPress={() => {
-                    const today = new Date();
-                    today.setFullYear(today.getFullYear() + 1);
-                    setInsuranceExpiryDate(today.toISOString().split('T')[0]);
-                  }}>
-                  <CalendarIcon color="#2563EB" />
-                </TouchableOpacity>
-              </View>
+              <DatePickerField
+                value={insuranceExpiryDate}
+                onChangeText={setInsuranceExpiryDate}
+                placeholder="Select Insurance Expiry Date"
+                wrapperStyle={[styles.dateInputWrapper, focusedField === 'insuranceDate' && styles.inputFocused]}
+                onFocus={() => setFocusedField('insuranceDate')}
+                onBlur={() => setFocusedField(null)}
+              />
             </View>
 
             {/* Insurance Expiry Notification Toggle */}
@@ -349,27 +328,14 @@ export default function AddVehicleScreen() {
             {/* PUC Expiry Date */}
             <View style={[styles.inputGroup, { marginTop: 16 }]}>
               <Text style={styles.inputLabel}>PUC Expiry Date</Text>
-              <View style={[styles.dateInputWrapper, focusedField === 'pucDate' && styles.inputFocused]}>
-                <TextInput
-                  style={styles.dateInput}
-                  placeholder="Select PUC Expiry Date"
-                  placeholderTextColor="#94A3B8"
-                  value={pucExpiryDate}
-                  onChangeText={setPucExpiryDate}
-                  onFocus={() => setFocusedField('pucDate')}
-                  onBlur={() => setFocusedField(null)}
-                />
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  style={styles.calendarIconContainer}
-                  onPress={() => {
-                    const today = new Date();
-                    today.setMonth(today.getMonth() + 6);
-                    setPucExpiryDate(today.toISOString().split('T')[0]);
-                  }}>
-                  <CalendarIcon color="#2563EB" />
-                </TouchableOpacity>
-              </View>
+              <DatePickerField
+                value={pucExpiryDate}
+                onChangeText={setPucExpiryDate}
+                placeholder="Select PUC Expiry Date"
+                wrapperStyle={[styles.dateInputWrapper, focusedField === 'pucDate' && styles.inputFocused]}
+                onFocus={() => setFocusedField('pucDate')}
+                onBlur={() => setFocusedField(null)}
+              />
             </View>
 
             {/* PUC Expiry Notification Toggle */}
@@ -588,7 +554,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
 
-  /* Date Input with Calendar Icon */
   dateInputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -606,13 +571,6 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     paddingVertical: 0,
   },
-  calendarIconContainer: {
-    paddingLeft: 10,
-    paddingVertical: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
   /* Toggles Section */
   toggleRow: {
     flexDirection: 'row',

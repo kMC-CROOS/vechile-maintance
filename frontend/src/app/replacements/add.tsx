@@ -18,6 +18,7 @@ import { Colors, FontSizes, MinTouchTarget, Radii, Spacing } from '@/constants/t
 import { useVehicle } from '@/context/VehicleContext';
 import { apiFetch } from '@/services/api';
 import { formatCurrency } from '@/utils/format';
+import { DatePickerField } from '@/components/ui/DatePickerField';
 
 export default function AddReplacementScreen() {
   const router = useRouter();
@@ -158,12 +159,11 @@ export default function AddReplacementScreen() {
               error={errors.component_name}
             />
 
-            <Input
+            <DatePickerField
               label="Replacement Date (YYYY-MM-DD)"
               placeholder="2026-09-11"
               value={replacementDate}
               onChangeText={setReplacementDate}
-              isMono
               error={errors.replacement_date}
             />
 
@@ -232,12 +232,11 @@ export default function AddReplacementScreen() {
             </TouchableOpacity>
 
             {hasWarranty && (
-              <Input
+              <DatePickerField
                 label="Warranty Expiry Date (YYYY-MM-DD)"
                 placeholder="2027-09-11"
                 value={warrantyExpiryDate}
                 onChangeText={setWarrantyExpiryDate}
-                isMono
               />
             )}
 
@@ -251,12 +250,11 @@ export default function AddReplacementScreen() {
               isMono
             />
 
-            <Input
+            <DatePickerField
               label="Expected Next Replacement Date (YYYY-MM-DD)"
               placeholder="2028-09-11"
               value={expectedNextDate}
               onChangeText={setExpectedNextDate}
-              isMono
             />
 
             <Button title="Save Replacement Entry" onPress={handleSave} loading={loading} style={{ marginTop: Spacing.p16 }} />

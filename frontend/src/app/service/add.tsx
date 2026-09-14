@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/Input';
 import { Colors, FontSizes, MinTouchTarget, Radii, Spacing } from '@/constants/theme';
 import { useVehicle } from '@/context/VehicleContext';
 import { apiFetch } from '@/services/api';
+import { DatePickerField } from '@/components/ui/DatePickerField';
 
 const SERVICE_CHIPS = [
   { id: 'engine_oil', label: 'Engine Oil' },
@@ -147,12 +148,11 @@ export default function AddServiceScreen() {
           <Card style={styles.card}>
             <Text style={styles.sectionTitle}>Step 1: Service Details</Text>
 
-            <Input
+            <DatePickerField
               label="Service Date (YYYY-MM-DD)"
               placeholder="2026-09-11"
               value={serviceDate}
               onChangeText={setServiceDate}
-              isMono
               error={errors.service_date}
             />
 

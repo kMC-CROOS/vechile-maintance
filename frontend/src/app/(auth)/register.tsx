@@ -13,6 +13,7 @@ import { useRouter } from 'expo-router';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { PasswordField } from '@/components/ui/PasswordField';
 import { Colors, FontSizes, MinTouchTarget, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 
@@ -112,21 +113,19 @@ export default function RegisterScreen() {
             error={errors.phone}
           />
 
-          <Input
+          <PasswordField
             label="Password"
             placeholder="••••••••"
             value={password}
             onChangeText={setPassword}
-            secureTextEntry
             error={errors.password}
           />
 
-          <Input
+          <PasswordField
             label="Confirm Password"
             placeholder="••••••••"
             value={passwordConfirmation}
             onChangeText={setPasswordConfirmation}
-            secureTextEntry
             error={errors.password_confirmation}
           />
 

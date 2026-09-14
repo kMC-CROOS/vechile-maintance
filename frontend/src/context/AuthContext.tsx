@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { router } from 'expo-router';
 import { apiFetch, setOnUnauthorizedHandler } from '@/services/api';
 import { getAuthToken, removeAuthToken, setAuthToken } from '@/services/storage';
@@ -17,7 +17,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (data: any) => Promise<void>;
-  googleLogin: (data: { email: string; name?: string; google_id?: string }) => Promise<void>;
+  googleLogin: (idToken: string) => Promise<void>;
   logout: () => Promise<void>;
   reloadUser: () => Promise<void>;
 }
@@ -78,15 +78,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(res.user);
   };
 
-  const googleLogin = async (data: { email: string; name?: string; google_id?: string }) => {
+  const googleLogin = useCallback(async (idToken: string) => {
     const res = await apiFetch<{ user: User; token: string }>('/google-auth', {
       method: 'POST',
-      body: data,
+      body: { id_token: idToken },
     });
     await setAuthToken(res.token);
     setToken(res.token);
     setUser(res.user);
-  };
+  }, []);
 
   const logout = async () => {
     try {
