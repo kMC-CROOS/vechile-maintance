@@ -1,0 +1,18 @@
+# Local environment and dependency files
+**/.env
+**/.env.*
+!**/.env.example
+**/node_modules/
+**/vendor/
+
+# Generated framework and tool output
+**/.expo/
+**/dist/
+**/web-build/
+**/public/build/
+**/storage/logs/
+**/.phpunit.cache/
+**/.vscode/
+
+# Preserve the frontend's prior local Git metadata outside the monorepo
+frontend/.git-history-backup/

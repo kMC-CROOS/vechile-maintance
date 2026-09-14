@@ -1,0 +1,107 @@
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { useAuth } from '@/context/AuthContext';
+import { apiFetch } from '@/services/api';
+
+export interface Vehicle {
+  id: number;
+  user_id: number;
+  type: string;
+  brand: string;
+  model: string;
+  registration_number: string;
+  fuel_type: string;
+  transmission: string;
+  current_odometer: number;
+  engine_capacity?: string;
+  notes?: string;
+  insurance?: any;
+  warranty?: any;
+  tax_record?: any;
+}
+
+interface VehicleContextType {
+  vehicles: Vehicle[];
+  activeVehicle: Vehicle | null;
+  isLoading: boolean;
+  setActiveVehicle: (vehicle: Vehicle | null) => void;
+  reloadVehicles: (selectId?: number) => Promise<Vehicle[]>;
+}
+
+const VehicleContext = createContext<VehicleContextType | undefined>(undefined);
+
+export const VehicleProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [activeVehicle, setActiveVehicle] = useState<Vehicle | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  const reloadVehicles = async (selectId?: number): Promise<Vehicle[]> => {
+    if (!isAuthenticated) {
+      setVehicles([]);
+      setActiveVehicle(null);
+      setIsLoading(false);
+      return [];
+    }
+
+    setIsLoading(true);
+    try {
+      const data = await apiFetch<Vehicle[]>('/vehicles');
+      setVehicles(data);
+
+      if (data.length > 0) {
+        if (selectId) {
+          const found = data.find((v) => v.id === selectId);
+          setActiveVehicle(found || data[0]);
+        } else if (!activeVehicle || !data.some((v) => v.id === activeVehicle.id)) {
+          setActiveVehicle(data[0]);
+        } else {
+          // Update existing active vehicle object reference
+          const updated = data.find((v) => v.id === activeVehicle.id);
+          if (updated) setActiveVehicle(updated);
+        }
+      } else {
+        setActiveVehicle(null);
+      }
+      return data;
+    } catch {
+      setVehicles([]);
+      setActiveVehicle(null);
+      return [];
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (isAuthenticated) {
+      setIsLoading(true);
+      reloadVehicles();
+    } else {
+      setVehicles([]);
+      setActiveVehicle(null);
+      setIsLoading(false);
+    }
+  }, [isAuthenticated, authLoading]);
+
+  return (
+    <VehicleContext.Provider
+      value={{
+        vehicles,
+        activeVehicle,
+        isLoading,
+        setActiveVehicle,
+        reloadVehicles,
+      }}>
+      {children}
+    </VehicleContext.Provider>
+  );
+};
+
+export const useVehicle = () => {
+  const context = useContext(VehicleContext);
+  if (!context) {
+    throw new Error('useVehicle must be used within a VehicleProvider');
+  }
+  return context;
+};
