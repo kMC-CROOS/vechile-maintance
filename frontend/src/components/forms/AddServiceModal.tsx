@@ -12,7 +12,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import Svg, { Path, Rect } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
+import { DatePickerField } from '@/components/ui/DatePickerField';
 
 interface AddServiceModalProps {
   visible: boolean;
@@ -35,13 +36,6 @@ const SERVICE_TYPES = [
   'Chain / Belt Lube',
   'Tire Rotation',
 ];
-
-const CalendarIcon = () => (
-  <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-    <Rect x="3" y="4" width="18" height="18" rx="3" stroke="#2563EB" strokeWidth="2" />
-    <Path d="M16 2V6M8 2V6M3 10H21" stroke="#2563EB" strokeWidth="2" strokeLinecap="round" />
-  </Svg>
-);
 
 const CloseIcon = () => (
   <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
@@ -133,15 +127,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
             <View style={styles.row}>
               <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
                 <Text style={styles.label}>Service Date</Text>
-                <View style={styles.dateWrapper}>
-                  <TextInput
-                    style={styles.dateInput}
-                    value={serviceDate}
-                    onChangeText={setServiceDate}
-                    placeholder="YYYY-MM-DD"
-                  />
-                  <CalendarIcon />
-                </View>
+                <DatePickerField value={serviceDate} onChangeText={setServiceDate} />
               </View>
 
               <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>

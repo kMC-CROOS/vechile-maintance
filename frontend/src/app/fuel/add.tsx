@@ -18,6 +18,7 @@ import { Colors, FontSizes, MinTouchTarget, Radii, Spacing } from '@/constants/t
 import { useVehicle } from '@/context/VehicleContext';
 import { apiFetch } from '@/services/api';
 import { formatCurrency } from '@/utils/format';
+import { DatePickerField } from '@/components/ui/DatePickerField';
 
 export default function AddFuelScreen() {
   const router = useRouter();
@@ -100,12 +101,11 @@ export default function AddFuelScreen() {
         </View>
 
         <Card style={styles.card}>
-          <Input
+          <DatePickerField
             label="Fueling Date (YYYY-MM-DD)"
             placeholder="2026-09-11"
             value={fuelDate}
             onChangeText={setFuelDate}
-            isMono
             error={errors.fuel_date}
           />
 
