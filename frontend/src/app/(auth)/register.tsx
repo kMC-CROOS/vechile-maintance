@@ -15,6 +15,7 @@ import Svg, { Path } from 'react-native-svg';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { PasswordField } from '@/components/ui/PasswordField';
 import { Colors, FontSizes, MinTouchTarget, Radii, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useGoogleAuth } from '@/hooks/useGoogleAuth';
@@ -198,7 +199,7 @@ export default function RegisterScreen() {
             error={errors.email}
           />
 
-          <Input
+          <PasswordField
             label="Password"
             placeholder="••••••••"
             value={password}
@@ -206,8 +207,6 @@ export default function RegisterScreen() {
               setPassword(val);
               if (errors.password) setErrors((prev) => ({ ...prev, password: '' }));
             }}
-            secureTextEntry
-            showPasswordToggle
             error={errors.password}
           />
 
@@ -249,7 +248,7 @@ export default function RegisterScreen() {
             </View>
           )}
 
-          <Input
+          <PasswordField
             label="Confirm Password"
             placeholder="••••••••"
             value={passwordConfirmation}
@@ -259,8 +258,6 @@ export default function RegisterScreen() {
                 setErrors((prev) => ({ ...prev, password_confirmation: '' }));
               }
             }}
-            secureTextEntry
-            showPasswordToggle
             error={errors.password_confirmation}
           />
 

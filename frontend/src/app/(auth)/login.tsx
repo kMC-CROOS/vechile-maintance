@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -13,9 +13,11 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
+import * as WebBrowser from 'expo-web-browser';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { PasswordField } from '@/components/ui/PasswordField';
 import { AutomotiveHeroAnimation } from '@/components/auth/AutomotiveHeroAnimation';
 import { Colors, FontSizes, MinTouchTarget, Radii, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
@@ -44,6 +46,8 @@ const GoogleIcon = () => (
   </Svg>
 );
 
+WebBrowser.maybeCompleteAuthSession();
+
 export default function LoginScreen() {
   const router = useRouter();
   const { login, forgotPassword } = useAuth();
@@ -59,6 +63,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+
 
   // Forgot password modal state
   const [forgotModalVisible, setForgotModalVisible] = useState(false);
@@ -114,7 +119,6 @@ export default function LoginScreen() {
     }
   };
 
-
   const handleSendResetEmail = async (e?: any) => {
     e?.preventDefault?.();
     e?.stopPropagation?.();
@@ -142,6 +146,8 @@ export default function LoginScreen() {
       setForgotLoading(false);
     }
   };
+
+
 
   return (
     <KeyboardAvoidingView
@@ -185,7 +191,7 @@ export default function LoginScreen() {
             error={errors.email}
           />
 
-          <Input
+          <PasswordField
             label="Password"
             placeholder="••••••••"
             value={password}
@@ -193,8 +199,6 @@ export default function LoginScreen() {
               setPassword(val);
               if (errors.password) setErrors((prev) => ({ ...prev, password: '' }));
             }}
-            secureTextEntry
-            showPasswordToggle
             error={errors.password}
           />
 
@@ -417,6 +421,12 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     fontWeight: '600',
     fontSize: FontSizes.sm,
+  },
+  googleErrorText: {
+    color: Colors.error,
+    fontSize: FontSizes.xs,
+    marginTop: Spacing.p8,
+    textAlign: 'center',
   },
   footer: {
     flexDirection: 'row',

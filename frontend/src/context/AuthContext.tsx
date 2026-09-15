@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { router } from 'expo-router';
 import { setOnUnauthorizedHandler } from '@/services/api';
 import {
@@ -16,7 +16,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (data: RegisterPayload) => Promise<void>;
-  googleLogin: (data: GoogleAuthPayload) => Promise<void>;
+  googleLogin: (data: string | GoogleAuthPayload) => Promise<void>;
   forgotPassword: (email: string) => Promise<string>;
   updateProfile: (data: { name: string; phone?: string }) => Promise<void>;
   logout: () => Promise<void>;
@@ -73,12 +73,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(res.user);
   };
 
-  const googleLogin = async (data: GoogleAuthPayload) => {
-    const res = await authService.googleAuth(data);
+  const googleLogin = useCallback(async (data: string | GoogleAuthPayload) => {
+    const payload: GoogleAuthPayload = typeof data === 'string' ? { id_token: data } : data;
+    const res = await authService.googleAuth(payload);
     await setAuthToken(res.token);
     setToken(res.token);
     setUser(res.user);
-  };
+  }, []);
 
   const forgotPassword = async (email: string): Promise<string> => {
     const res = await authService.forgotPassword(email);

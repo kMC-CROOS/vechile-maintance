@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/Input';
 import { Colors, FontSizes, MinTouchTarget, Radii, Spacing } from '@/constants/theme';
 import { useVehicle } from '@/context/VehicleContext';
 import { apiFetch } from '@/services/api';
+import { DatePickerField } from '@/components/ui/DatePickerField';
 
 export default function AddExpenseScreen() {
   const router = useRouter();
@@ -92,12 +93,11 @@ export default function AddExpenseScreen() {
             Note: Fuel, service, and replacement expenses are logged automatically via their respective forms. Use this form for custom/other vehicle expenses like toll fees, parking, washing, or fines.
           </Text>
 
-          <Input
+          <DatePickerField
             label="Expense Date (YYYY-MM-DD)"
             placeholder="2026-09-11"
             value={expenseDate}
             onChangeText={setExpenseDate}
-            isMono
             error={errors.expense_date}
           />
 

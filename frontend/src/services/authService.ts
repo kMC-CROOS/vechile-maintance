@@ -22,9 +22,10 @@ export interface RegisterPayload {
 }
 
 export interface GoogleAuthPayload {
-  email: string;
+  email?: string;
   name?: string;
   google_id?: string;
+  id_token?: string;
 }
 
 export const authService = {
@@ -61,7 +62,8 @@ export const authService = {
     return await apiFetch<AuthResponse>('/google-auth', {
       method: 'POST',
       body: {
-        email: data.email.trim(),
+        id_token: data.id_token,
+        email: data.email ? data.email.trim() : undefined,
         name: data.name?.trim() || undefined,
         google_id: data.google_id,
       },
