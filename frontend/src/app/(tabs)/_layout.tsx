@@ -1,17 +1,20 @@
 import React from 'react';
 import { Text } from 'react-native';
 import { Tabs } from 'expo-router';
+import { useAppTheme } from '@/context/ThemeContext';
 
 export default function TabLayout() {
+  const { theme } = useAppTheme();
+
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#2563EB',
-        tabBarInactiveTintColor: '#64748B',
+        tabBarActiveTintColor: theme.primaryBlue,
+        tabBarInactiveTintColor: theme.textMuted,
         tabBarStyle: {
-          backgroundColor: '#FFFFFF',
-          borderTopColor: '#E2E8F0',
+          backgroundColor: theme.tabBar,
+          borderTopColor: theme.tabBarBorder,
           borderTopWidth: 1,
           height: 62,
           paddingBottom: 8,
@@ -60,11 +63,9 @@ export default function TabLayout() {
       <Tabs.Screen
         name="analytics"
         options={{
-          title: 'Analytics',
-          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18 }}>📊</Text>,
+          href: null,
         }}
       />
-      {/* Hidden legacy tab */}
       <Tabs.Screen
         name="reminders"
         options={{

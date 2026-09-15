@@ -1,11 +1,11 @@
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Svg, { Path, Rect } from 'react-native-svg';
+import { useAppTheme } from '@/context/ThemeContext';
 
 interface QuickActionsRowProps {
   onAddService: () => void;
   onAddExpense: () => void;
-  onAddTrip: () => void;
   onAddDocument: () => void;
 }
 
@@ -30,19 +30,6 @@ const ReceiptIcon = () => (
   </Svg>
 );
 
-// Navigation Arrow / Trip SVG Icon
-const TripIcon = () => (
-  <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-    <Path
-      d="M3 11L21 2L12 20L10 13L3 11Z"
-      stroke="#8B5CF6"
-      strokeWidth="2.2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-  </Svg>
-);
-
 // Document File SVG Icon
 const DocIcon = () => (
   <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
@@ -60,40 +47,33 @@ const DocIcon = () => (
 export const QuickActionsRow: React.FC<QuickActionsRowProps> = ({
   onAddService,
   onAddExpense,
-  onAddTrip,
   onAddDocument,
 }) => {
+  const { isDark, theme } = useAppTheme();
+
   const actions = [
     {
       id: 'service',
       title: 'Add Service',
       icon: <WrenchIcon />,
-      bgColor: '#ECFDF5',
-      borderColor: '#A7F3D0',
+      bgColor: isDark ? 'rgba(16, 185, 129, 0.15)' : '#ECFDF5',
+      borderColor: isDark ? '#059669' : '#A7F3D0',
       onPress: onAddService,
     },
     {
       id: 'expense',
       title: 'Add Expense',
       icon: <ReceiptIcon />,
-      bgColor: '#FFFBEB',
-      borderColor: '#FDE68A',
+      bgColor: isDark ? 'rgba(245, 158, 11, 0.15)' : '#FFFBEB',
+      borderColor: isDark ? '#D97706' : '#FDE68A',
       onPress: onAddExpense,
-    },
-    {
-      id: 'trip',
-      title: 'Add Trip',
-      icon: <TripIcon />,
-      bgColor: '#F5F3FF',
-      borderColor: '#DDD6FE',
-      onPress: onAddTrip,
     },
     {
       id: 'document',
       title: 'Add Document',
       icon: <DocIcon />,
-      bgColor: '#FDF2F8',
-      borderColor: '#FBCFE8',
+      bgColor: isDark ? 'rgba(236, 72, 153, 0.15)' : '#FDF2F8',
+      borderColor: isDark ? '#DB2777' : '#FBCFE8',
       onPress: onAddDocument,
     },
   ];
@@ -104,7 +84,11 @@ export const QuickActionsRow: React.FC<QuickActionsRowProps> = ({
         <TouchableOpacity
           key={item.id}
           style={styles.actionItem}
-          onPress={item.onPress}
+          onPress={(e: any) => {
+            e?.preventDefault?.();
+            e?.stopPropagation?.();
+            item.onPress();
+          }}
           activeOpacity={0.75}>
           <View
             style={[
@@ -113,7 +97,7 @@ export const QuickActionsRow: React.FC<QuickActionsRowProps> = ({
             ]}>
             {item.icon}
           </View>
-          <Text style={styles.actionTitle} numberOfLines={1}>
+          <Text style={[styles.actionTitle, { color: theme.textPrimary }]} numberOfLines={1}>
             {item.title}
           </Text>
         </TouchableOpacity>
@@ -125,13 +109,13 @@ export const QuickActionsRow: React.FC<QuickActionsRowProps> = ({
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'space-around',
     paddingHorizontal: 20,
     marginBottom: 20,
   },
   actionItem: {
     alignItems: 'center',
-    width: 74,
+    width: 90,
   },
   roundButton: {
     width: 56,
@@ -150,7 +134,6 @@ const styles = StyleSheet.create({
   actionTitle: {
     fontSize: 11.5,
     fontWeight: '600',
-    color: '#334155',
     textAlign: 'center',
   },
 });

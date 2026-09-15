@@ -1,23 +1,24 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { router } from 'expo-router';
-import { apiFetch, setOnUnauthorizedHandler } from '@/services/api';
+import { setOnUnauthorizedHandler } from '@/services/api';
+import {
+  authService,
+  GoogleAuthPayload,
+  RegisterPayload,
+  UserProfile,
+} from '@/services/authService';
 import { getAuthToken, removeAuthToken, setAuthToken } from '@/services/storage';
 
-interface User {
-  id: number;
-  name: string;
-  email: string;
-  phone?: string;
-}
-
 interface AuthContextType {
-  user: User | null;
+  user: UserProfile | null;
   token: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (data: any) => Promise<void>;
-  googleLogin: (data: { email: string; name?: string; google_id?: string }) => Promise<void>;
+  register: (data: RegisterPayload) => Promise<void>;
+  googleLogin: (data: GoogleAuthPayload) => Promise<void>;
+  forgotPassword: (email: string) => Promise<string>;
+  updateProfile: (data: { name: string; phone?: string }) => Promise<void>;
   logout: () => Promise<void>;
   reloadUser: () => Promise<void>;
 }
@@ -25,7 +26,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<UserProfile | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
@@ -34,7 +35,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const storedToken = await getAuthToken();
       if (storedToken) {
         setToken(storedToken);
-        const data = await apiFetch<{ user: User }>('/me');
+        const data = await authService.getMe();
         setUser(data.user);
       } else {
         setUser(null);
@@ -59,41 +60,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const login = async (email: string, password: string) => {
-    const res = await apiFetch<{ user: User; token: string }>('/login', {
-      method: 'POST',
-      body: { email, password },
-    });
+    const res = await authService.login(email, password);
     await setAuthToken(res.token);
     setToken(res.token);
     setUser(res.user);
   };
 
-  const register = async (data: any) => {
-    const res = await apiFetch<{ user: User; token: string }>('/register', {
-      method: 'POST',
-      body: data,
-    });
+  const register = async (data: RegisterPayload) => {
+    const res = await authService.register(data);
     await setAuthToken(res.token);
     setToken(res.token);
     setUser(res.user);
   };
 
-  const googleLogin = async (data: { email: string; name?: string; google_id?: string }) => {
-    const res = await apiFetch<{ user: User; token: string }>('/google-auth', {
-      method: 'POST',
-      body: data,
-    });
+  const googleLogin = async (data: GoogleAuthPayload) => {
+    const res = await authService.googleAuth(data);
     await setAuthToken(res.token);
     setToken(res.token);
+    setUser(res.user);
+  };
+
+  const forgotPassword = async (email: string): Promise<string> => {
+    const res = await authService.forgotPassword(email);
+    return res.message;
+  };
+
+  const updateProfile = async (data: { name: string; phone?: string }) => {
+    const res = await authService.updateProfile(data);
     setUser(res.user);
   };
 
   const logout = async () => {
-    try {
-      await apiFetch('/logout', { method: 'POST' });
-    } catch {
-      // Ignore network errors on logout
-    }
+    await authService.logout();
     await removeAuthToken();
     setToken(null);
     setUser(null);
@@ -110,6 +108,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         register,
         googleLogin,
+        forgotPassword,
+        updateProfile,
         logout,
         reloadUser,
       }}>
@@ -125,3 +125,4 @@ export const useAuth = () => {
   }
   return context;
 };
+

@@ -22,6 +22,7 @@ export const Button: React.FC<ButtonProps> = ({
   size = 'medium',
   style,
   disabled,
+  onPress,
   ...props
 }) => {
   const getBgColor = () => {
@@ -53,6 +54,14 @@ export const Button: React.FC<ButtonProps> = ({
   const minHeight = size === 'small' ? MinTouchTarget : size === 'large' ? 52 : 48;
   const fontSize = size === 'small' ? FontSizes.sm : size === 'large' ? FontSizes.base : FontSizes.base;
 
+  const handlePress = (e: any) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    if (onPress) {
+      onPress(e);
+    }
+  };
+
   return (
     <TouchableOpacity
       style={[
@@ -67,6 +76,7 @@ export const Button: React.FC<ButtonProps> = ({
       ]}
       disabled={disabled || loading}
       activeOpacity={0.7}
+      onPress={handlePress}
       {...props}>
       {loading ? (
         <ActivityIndicator color={getTextColor()} size="small" />

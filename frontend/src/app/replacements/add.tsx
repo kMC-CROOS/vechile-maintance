@@ -66,13 +66,17 @@ export default function AddReplacementScreen() {
     return true;
   };
 
-  const handleNextStep = () => {
+  const handleNextStep = (e?: any) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
     if (validateStep1()) {
       setStep(2);
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = async (e?: any) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
     if (!activeVehicle) return;
 
     setLoading(true);

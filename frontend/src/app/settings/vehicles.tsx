@@ -84,7 +84,11 @@ export default function ManageVehiclesScreen() {
                 activeOpacity={0.7}
                 onPress={() => {
                   setActiveVehicle(v);
-                  router.replace('/(tabs)' as any);
+                  if (router.canGoBack()) {
+                    router.back();
+                  } else {
+                    router.replace('/(tabs)' as any);
+                  }
                 }}>
                 <View style={{ flex: 1 }}>
                   <View style={styles.titleRow}>

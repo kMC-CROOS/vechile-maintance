@@ -17,7 +17,7 @@ import Svg, { Path, Rect } from 'react-native-svg';
 interface AddExpenseModalProps {
   visible: boolean;
   onClose: () => void;
-  onSave?: (data: any) => void;
+  onSave?: (data: any) => void | Promise<void>;
 }
 
 const PAYMENT_METHODS = ['UPI', 'Cash', 'Card', 'NetBanking', 'Other'] as const;
@@ -63,7 +63,9 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
   const [category, setCategory] = useState<string>('Fuel');
   const [loading, setLoading] = useState(false);
 
-  const handleSave = () => {
+  const handleSave = async (e?: any) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
     if (!amount.trim() || isNaN(Number(amount)) || Number(amount) <= 0) {
       Alert.alert('Invalid Amount', 'Please enter a valid expense amount');
       return;
@@ -82,12 +84,17 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
       category,
     };
 
-    setTimeout(() => {
-      setLoading(false);
-      if (onSave) onSave(expenseData);
+    try {
+      if (onSave) {
+        await onSave(expenseData);
+      }
       Alert.alert('Success', 'Expense logged successfully!');
       onClose();
-    }, 400);
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'Failed to save expense');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

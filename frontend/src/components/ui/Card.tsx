@@ -1,6 +1,7 @@
 import React from 'react';
 import { StyleSheet, View, ViewProps } from 'react-native';
-import { Colors, Radii, Spacing } from '@/constants/theme';
+import { Radii, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 
 interface CardProps extends ViewProps {
   variant?: 'card' | 'surface' | 'surface2';
@@ -16,18 +17,20 @@ export const Card: React.FC<CardProps> = ({
   radius = Radii.medium,
   ...props
 }) => {
+  const theme = useTheme();
+
   const bg =
     variant === 'surface'
-      ? Colors.surface
+      ? theme.surface
       : variant === 'surface2'
-      ? Colors.surface2
-      : Colors.card;
+      ? theme.surface2
+      : theme.card;
 
   return (
     <View
       style={[
         styles.card,
-        { backgroundColor: bg, padding, borderRadius: radius },
+        { backgroundColor: bg, borderColor: theme.border, padding, borderRadius: radius },
         style,
       ]}
       {...props}>
@@ -39,6 +42,5 @@ export const Card: React.FC<CardProps> = ({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: Colors.border,
   },
 });

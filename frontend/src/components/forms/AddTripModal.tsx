@@ -17,7 +17,7 @@ import Svg, { Path } from 'react-native-svg';
 interface AddTripModalProps {
   visible: boolean;
   onClose: () => void;
-  onSave?: (data: any) => void;
+  onSave?: (data: any) => void | Promise<void>;
   currentOdometer?: number;
 }
 
@@ -43,7 +43,9 @@ export const AddTripModal: React.FC<AddTripModalProps> = ({
 
   const distance = Math.max(0, (Number(endOdo) || 0) - (Number(startOdo) || 0));
 
-  const handleSave = () => {
+  const handleSave = async (e?: any) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
     if (!destination.trim()) {
       Alert.alert('Required', 'Please enter a Trip Name or Destination');
       return;
@@ -64,12 +66,17 @@ export const AddTripModal: React.FC<AddTripModalProps> = ({
       notes: notes.trim() || undefined,
     };
 
-    setTimeout(() => {
-      setLoading(false);
-      if (onSave) onSave(tripData);
+    try {
+      if (onSave) {
+        await onSave(tripData);
+      }
       Alert.alert('Success', `Trip to ${destination} logged (${distance} KM)!`);
       onClose();
-    }, 400);
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'Failed to save trip');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

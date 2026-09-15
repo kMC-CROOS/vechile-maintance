@@ -17,7 +17,7 @@ import Svg, { Path, Rect } from 'react-native-svg';
 interface AddServiceModalProps {
   visible: boolean;
   onClose: () => void;
-  onSave?: (data: any) => void;
+  onSave?: (data: any) => void | Promise<void>;
   currentOdometer?: number;
 }
 
@@ -77,7 +77,9 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async (e?: any) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
     if (!odometer.trim()) {
       Alert.alert('Required', 'Please enter the service odometer reading');
       return;
@@ -100,12 +102,17 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
       notes,
     };
 
-    setTimeout(() => {
-      setLoading(false);
-      if (onSave) onSave(record);
+    try {
+      if (onSave) {
+        await onSave(record);
+      }
       Alert.alert('Success', 'Service record logged successfully!');
       onClose();
-    }, 400);
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'Failed to save service record');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

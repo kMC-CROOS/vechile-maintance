@@ -75,7 +75,9 @@ export default function AddServiceScreen() {
     return true;
   };
 
-  const handleNextStep = () => {
+  const handleNextStep = (e?: any) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
     if (validateStep1()) {
       // Auto suggest next service due odometer (+5000 km)
       if (!nextOdometer && odometer) {
@@ -85,7 +87,9 @@ export default function AddServiceScreen() {
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = async (e?: any) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
     if (!activeVehicle) return;
 
     setLoading(true);

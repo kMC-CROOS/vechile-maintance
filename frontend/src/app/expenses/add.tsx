@@ -27,7 +27,9 @@ export default function AddExpenseScreen() {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const handleSave = async () => {
+  const handleSave = async (e?: any) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
     if (!activeVehicle) return;
     setErrors({});
 

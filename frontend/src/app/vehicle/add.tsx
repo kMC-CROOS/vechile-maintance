@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   SafeAreaView,
   ScrollView,
@@ -40,6 +41,20 @@ const BackIcon = ({ color = '#0F172A', size = 22 }: { color?: string; size?: num
   </Svg>
 );
 
+// Chevron Left SVG Icon
+const ChevronLeftIcon = () => (
+  <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+    <Path d="M15 18L9 12L15 6" stroke="#1E293B" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+  </Svg>
+);
+
+// Chevron Right SVG Icon
+const ChevronRightIcon = () => (
+  <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+    <Path d="M9 18L15 12L9 6" stroke="#1E293B" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+  </Svg>
+);
+
 export default function AddVehicleScreen() {
   const router = useRouter();
   const navigation = useNavigation<any>();
@@ -68,13 +83,86 @@ export default function AddVehicleScreen() {
   // Focus tracking for input highlights
   const [focusedField, setFocusedField] = useState<string | null>(null);
 
+  // Interactive Calendar Date Picker States
+  const [activeDatePickerTarget, setActiveDatePickerTarget] = useState<'insurance' | 'puc' | null>(null);
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [calendarCursor, setCalendarCursor] = useState(new Date());
+
+  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
+
+  // Calendar Helpers
+  const currentMonthYear = useMemo(() => {
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    return `${months[calendarCursor.getMonth()]} ${calendarCursor.getFullYear()}`;
+  }, [calendarCursor]);
+
+  const calendarDays = useMemo(() => {
+    const year = calendarCursor.getFullYear();
+    const month = calendarCursor.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    const days: { day: number; dateStr: string; isCurrentMonth: boolean }[] = [];
+    for (let i = 0; i < firstDay; i++) {
+      days.push({ day: 0, dateStr: '', isCurrentMonth: false });
+    }
+    for (let d = 1; d <= daysInMonth; d++) {
+      const mm = String(month + 1).padStart(2, '0');
+      const dd = String(d).padStart(2, '0');
+      days.push({ day: d, dateStr: `${year}-${mm}-${dd}`, isCurrentMonth: true });
+    }
+    return days;
+  }, [calendarCursor]);
+
+  const openCalendarFor = (target: 'insurance' | 'puc', e?: any) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    setActiveDatePickerTarget(target);
+    const currentDateVal = target === 'insurance' ? insuranceExpiryDate : pucExpiryDate;
+    if (currentDateVal && /^\d{4}-\d{2}-\d{2}$/.test(currentDateVal.trim())) {
+      const [y, m, d] = currentDateVal.trim().split('-').map(Number);
+      setCalendarCursor(new Date(y, m - 1, d || 1));
+    } else {
+      setCalendarCursor(new Date());
+    }
+    setShowCalendar(true);
+  };
+
+  const handlePrevMonth = (e?: any) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    setCalendarCursor(new Date(calendarCursor.getFullYear(), calendarCursor.getMonth() - 1, 1));
+  };
+
+  const handleNextMonth = (e?: any) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    setCalendarCursor(new Date(calendarCursor.getFullYear(), calendarCursor.getMonth() + 1, 1));
+  };
+
+  const handleSelectDate = (dateStr: string, e?: any) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    if (activeDatePickerTarget === 'insurance') {
+      setInsuranceExpiryDate(dateStr);
+    } else if (activeDatePickerTarget === 'puc') {
+      setPucExpiryDate(dateStr);
+    }
+    setShowCalendar(false);
+  };
+
   /**
    * Save Vehicle Handler:
    * 1. Validates required fields
    * 2. Packages newly created vehicle data
    * 3. Immediately navigates to the Dashboard screen passing the vehicle state
    */
-  const handleSave = () => {
+  const handleSave = (e?: any) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
     // 1. Validation
     if (!brand.trim()) {
       Alert.alert('Required Field', 'Please enter the vehicle Brand / Make (e.g. Mahindra, Honda)');
@@ -137,6 +225,8 @@ export default function AddVehicleScreen() {
         });
       } else if (navigation.navigate) {
         navigation.navigate('Dashboard', { newVehicle });
+      } else if (router.canGoBack()) {
+        router.back();
       } else {
         router.replace({
           pathname: '/(tabs)',
@@ -144,10 +234,14 @@ export default function AddVehicleScreen() {
         });
       }
     } catch (err) {
-      router.replace({
-        pathname: '/(tabs)',
-        params: { newVehicle: JSON.stringify(newVehicle) },
-      });
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace({
+          pathname: '/(tabs)',
+          params: { newVehicle: JSON.stringify(newVehicle) },
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -164,7 +258,7 @@ export default function AddVehicleScreen() {
           <TouchableOpacity
             style={styles.backButton}
             activeOpacity={0.7}
-            onPress={() => (router.canGoBack() ? router.back() : router.replace('/' as any))}
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)' as any))}
             accessibilityLabel="Go back"
             accessibilityRole="button">
             <BackIcon />
@@ -289,27 +383,25 @@ export default function AddVehicleScreen() {
             {/* Insurance Expiry Date */}
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Insurance Expiry Date</Text>
-              <View style={[styles.dateInputWrapper, focusedField === 'insuranceDate' && styles.inputFocused]}>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                style={[
+                  styles.dateInputWrapper,
+                  activeDatePickerTarget === 'insurance' && showCalendar && styles.inputFocused,
+                ]}
+                onPress={(e) => openCalendarFor('insurance', e)}>
                 <TextInput
                   style={styles.dateInput}
                   placeholder="Select Insurance Expiry Date"
                   placeholderTextColor="#94A3B8"
                   value={insuranceExpiryDate}
-                  onChangeText={setInsuranceExpiryDate}
-                  onFocus={() => setFocusedField('insuranceDate')}
-                  onBlur={() => setFocusedField(null)}
+                  editable={false}
+                  pointerEvents="none"
                 />
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  style={styles.calendarIconContainer}
-                  onPress={() => {
-                    const today = new Date();
-                    today.setFullYear(today.getFullYear() + 1);
-                    setInsuranceExpiryDate(today.toISOString().split('T')[0]);
-                  }}>
+                <View style={styles.calendarIconContainer}>
                   <CalendarIcon color="#2563EB" />
-                </TouchableOpacity>
-              </View>
+                </View>
+              </TouchableOpacity>
             </View>
 
             {/* Insurance Expiry Notification Toggle */}
@@ -349,27 +441,25 @@ export default function AddVehicleScreen() {
             {/* PUC Expiry Date */}
             <View style={[styles.inputGroup, { marginTop: 16 }]}>
               <Text style={styles.inputLabel}>PUC Expiry Date</Text>
-              <View style={[styles.dateInputWrapper, focusedField === 'pucDate' && styles.inputFocused]}>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                style={[
+                  styles.dateInputWrapper,
+                  activeDatePickerTarget === 'puc' && showCalendar && styles.inputFocused,
+                ]}
+                onPress={(e) => openCalendarFor('puc', e)}>
                 <TextInput
                   style={styles.dateInput}
                   placeholder="Select PUC Expiry Date"
                   placeholderTextColor="#94A3B8"
                   value={pucExpiryDate}
-                  onChangeText={setPucExpiryDate}
-                  onFocus={() => setFocusedField('pucDate')}
-                  onBlur={() => setFocusedField(null)}
+                  editable={false}
+                  pointerEvents="none"
                 />
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  style={styles.calendarIconContainer}
-                  onPress={() => {
-                    const today = new Date();
-                    today.setMonth(today.getMonth() + 6);
-                    setPucExpiryDate(today.toISOString().split('T')[0]);
-                  }}>
+                <View style={styles.calendarIconContainer}>
                   <CalendarIcon color="#2563EB" />
-                </TouchableOpacity>
-              </View>
+                </View>
+              </TouchableOpacity>
             </View>
 
             {/* PUC Expiry Notification Toggle */}
@@ -440,6 +530,108 @@ export default function AddVehicleScreen() {
             </Text>
           </TouchableOpacity>
         </View>
+
+        {/* Interactive Calendar Date Picker Modal */}
+        <Modal
+          visible={showCalendar}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowCalendar(false)}>
+          <View style={styles.modalOverlay}>
+            <View style={styles.calendarModalContent}>
+              {/* Header: Title & Navigation */}
+              <View style={styles.calendarHeader}>
+                <TouchableOpacity
+                  onPress={handlePrevMonth}
+                  style={styles.calNavBtn}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Previous month">
+                  <ChevronLeftIcon />
+                </TouchableOpacity>
+                <View style={{ alignItems: 'center' }}>
+                  <Text style={styles.calendarModalTargetText}>
+                    {activeDatePickerTarget === 'insurance'
+                      ? 'Select Insurance Expiry'
+                      : 'Select PUC Expiry'}
+                  </Text>
+                  <Text style={styles.calendarMonthTitle}>{currentMonthYear}</Text>
+                </View>
+                <TouchableOpacity
+                  onPress={handleNextMonth}
+                  style={styles.calNavBtn}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Next month">
+                  <ChevronRightIcon />
+                </TouchableOpacity>
+              </View>
+
+              {/* Day of Week Headers */}
+              <View style={styles.calWeekRow}>
+                {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((w) => (
+                  <Text key={w} style={styles.calWeekDayText}>
+                    {w}
+                  </Text>
+                ))}
+              </View>
+
+              {/* Days Grid */}
+              <View style={styles.calDaysGrid}>
+                {calendarDays.map((d, index) => {
+                  if (!d.isCurrentMonth) {
+                    return <View key={`empty-${index}`} style={styles.calDayCell} />;
+                  }
+                  const activeVal =
+                    activeDatePickerTarget === 'insurance'
+                      ? insuranceExpiryDate
+                      : pucExpiryDate;
+                  const isSelected = activeVal === d.dateStr;
+                  const isToday = todayStr === d.dateStr;
+                  return (
+                    <TouchableOpacity
+                      key={d.dateStr}
+                      style={[
+                        styles.calDayCell,
+                        isSelected && styles.calDayCellSelected,
+                        isToday && !isSelected && styles.calDayCellToday,
+                      ]}
+                      activeOpacity={0.7}
+                      onPress={(e) => handleSelectDate(d.dateStr, e)}>
+                      <Text
+                        style={[
+                          styles.calDayText,
+                          isSelected && styles.calDayTextSelected,
+                          isToday && !isSelected && styles.calDayTextToday,
+                        ]}>
+                        {d.day}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* Footer Quick Actions */}
+              <View style={styles.calFooter}>
+                <TouchableOpacity
+                  style={styles.calTodayBtn}
+                  activeOpacity={0.7}
+                  onPress={(e) => handleSelectDate(todayStr, e)}>
+                  <Text style={styles.calTodayBtnText}>Select Today</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.calCloseBtn}
+                  activeOpacity={0.7}
+                  onPress={(e: any) => {
+                    e?.preventDefault?.();
+                    e?.stopPropagation?.();
+                    setShowCalendar(false);
+                  }}>
+                  <Text style={styles.calCloseBtnText}>Done</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -682,5 +874,129 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#FFFFFF',
     letterSpacing: 0.2,
+  },
+
+  /* Calendar Date Picker Modal Styles */
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  calendarModalContent: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  calendarHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  calendarModalTargetText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#2563EB',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  calendarMonthTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  calNavBtn: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#F1F5F9',
+  },
+  calWeekRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+  },
+  calWeekDayText: {
+    width: 38,
+    textAlign: 'center',
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#94A3B8',
+  },
+  calDaysGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  calDayCell: {
+    width: 38,
+    height: 38,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 8,
+    marginVertical: 2,
+  },
+  calDayCellSelected: {
+    backgroundColor: '#2563EB',
+  },
+  calDayCellToday: {
+    borderWidth: 1.5,
+    borderColor: '#2563EB',
+    backgroundColor: '#EFF6FF',
+  },
+  calDayText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#0F172A',
+  },
+  calDayTextSelected: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  calDayTextToday: {
+    color: '#2563EB',
+    fontWeight: '700',
+  },
+  calFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 14,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  calTodayBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    backgroundColor: '#EFF6FF',
+  },
+  calTodayBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#2563EB',
+  },
+  calCloseBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    backgroundColor: '#F1F5F9',
+  },
+  calCloseBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
   },
 });

@@ -16,7 +16,7 @@ export const setOnUnauthorizedHandler = (handler: () => void) => {
 export const apiFetch = async <T = any>(
   endpoint: string,
   options: {
-    method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+    method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
     body?: any;
     isFormData?: boolean;
     headers?: Record<string, string>;

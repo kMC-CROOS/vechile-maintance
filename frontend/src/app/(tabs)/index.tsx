@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -20,22 +20,24 @@ import { QuickActionsRow } from '@/components/dashboard/QuickActionsRow';
 import { StatusGrid } from '@/components/dashboard/StatusGrid';
 import { AddServiceModal } from '@/components/forms/AddServiceModal';
 import { AddExpenseModal } from '@/components/forms/AddExpenseModal';
-import { AddTripModal } from '@/components/forms/AddTripModal';
 import { AddDocumentModal } from '@/components/forms/AddDocumentModal';
+import { useAppTheme } from '@/context/ThemeContext';
+import { useVehicle } from '@/context/VehicleContext';
+import { apiFetch } from '@/services/api';
 
 // Settings Gear SVG Icon
-const SettingsIcon = () => (
+const SettingsIcon = ({ color = '#334155' }: { color?: string }) => (
   <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
     <Path
       d="M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z"
-      stroke="#334155"
+      stroke={color}
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
     />
     <Path
       d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
-      stroke="#334155"
+      stroke={color}
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
@@ -53,95 +55,111 @@ const ChevronDownIcon = () => (
 export default function DashboardScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ newVehicle?: string }>();
+  const { vehicles, activeVehicle: contextVehicle, setActiveVehicle: setContextVehicle, reloadVehicles } = useVehicle();
 
-  // Active Vehicle State
-  const [activeVehicle, setActiveVehicle] = useState({
-    id: '1',
-    name: 'Croos',
-    type: 'Bike',
-    model: 'Honda Xc 700',
-    regNumber: 'Cw123',
-    odometer: 1500,
-  });
-
-  // Listen for newly saved vehicle from navigation params
-  useEffect(() => {
-    if (params?.newVehicle) {
-      try {
-        const parsed =
-          typeof params.newVehicle === 'string'
-            ? JSON.parse(params.newVehicle)
-            : params.newVehicle;
-        if (parsed && (parsed.name || parsed.model || parsed.brand)) {
-          setActiveVehicle({
-            id: parsed.id || Date.now().toString(),
-            name: parsed.name || parsed.brand || 'My Vehicle',
-            type: parsed.type || parsed.vehicleType || 'Car',
-            model: parsed.model || `${parsed.brand || ''} ${parsed.name || ''}`,
-            regNumber: parsed.regNumber || parsed.registrationNumber || 'CW123',
-            odometer: Number(parsed.odometer || parsed.current_odometer) || 1500,
-          });
-        }
-      } catch (err) {
-        console.log('Error parsing newVehicle param:', err);
-      }
+  // Unified display vehicle from context with safe fallback
+  const displayVehicle = useMemo(() => {
+    if (contextVehicle) {
+      return {
+        id: String(contextVehicle.id),
+        name: contextVehicle.brand || contextVehicle.model || 'My Vehicle',
+        type: contextVehicle.type || 'Car',
+        model: `${contextVehicle.brand || ''} ${contextVehicle.model || ''}`.trim(),
+        regNumber: contextVehicle.registration_number || 'CW123',
+        odometer: Number(contextVehicle.current_odometer) || 1500,
+        raw: contextVehicle,
+      };
     }
-  }, [params?.newVehicle]);
+    return {
+      id: '1',
+      name: 'Croos',
+      type: 'Bike',
+      model: 'Honda Xc 700',
+      regNumber: 'Cw123',
+      odometer: 1500,
+      raw: null,
+    };
+  }, [contextVehicle]);
 
   // Modal Visibility States
   const [serviceModalVisible, setServiceModalVisible] = useState(false);
   const [expenseModalVisible, setExpenseModalVisible] = useState(false);
-  const [tripModalVisible, setTripModalVisible] = useState(false);
   const [docModalVisible, setDocModalVisible] = useState(false);
   const [switcherVisible, setSwitcherVisible] = useState(false);
   const [odoModalVisible, setOdoModalVisible] = useState(false);
-  const [newOdometer, setNewOdometer] = useState(activeVehicle.odometer.toString());
+  const [newOdometer, setNewOdometer] = useState(displayVehicle.odometer.toString());
 
   const [refreshing, setRefreshing] = useState(false);
+  const [docRefreshKey, setDocRefreshKey] = useState(0);
+  const { isDark, theme } = useAppTheme();
 
-  const onRefresh = () => {
+  // Keep newOdometer string in sync with current vehicle
+  useEffect(() => {
+    setNewOdometer(String(displayVehicle.odometer));
+  }, [displayVehicle.odometer]);
+
+  // Listen for newly saved vehicle from navigation params
+  useEffect(() => {
+    if (params?.newVehicle) {
+      reloadVehicles();
+    }
+  }, [params?.newVehicle]);
+
+  const onRefresh = async () => {
     setRefreshing(true);
-    setTimeout(() => {
-      setRefreshing(false);
-    }, 600);
+    setDocRefreshKey((k) => k + 1);
+    try {
+      await reloadVehicles();
+    } catch {}
+    setRefreshing(false);
   };
 
-  const handleUpdateOdometer = () => {
+  const handleUpdateOdometer = async (e?: any) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
     const val = Number(newOdometer);
     if (isNaN(val) || val <= 0) {
       Alert.alert('Invalid Input', 'Please enter a valid numeric odometer reading');
       return;
     }
-    setActiveVehicle((prev) => ({ ...prev, odometer: val }));
+    if (contextVehicle) {
+      setContextVehicle({ ...contextVehicle, current_odometer: val });
+      try {
+        await apiFetch(`/vehicles/${contextVehicle.id}`, {
+          method: 'PATCH',
+          body: { current_odometer: val },
+        });
+      } catch {}
+    }
     setOdoModalVisible(false);
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.surface }]}>
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
         {/* 1. Top Bar */}
-        <View style={styles.topBar}>
+        <View style={[styles.topBar, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
           <View>
-            <Text style={styles.dashboardTitle}>Dashboard</Text>
+            <Text style={[styles.dashboardTitle, { color: theme.textPrimary }]}>Dashboard</Text>
           </View>
 
           {/* Vehicle Selector Dropdown */}
           <TouchableOpacity
-            style={styles.vehicleSelector}
+            style={[styles.vehicleSelector, { backgroundColor: theme.blueSoft, borderColor: theme.border }]}
             onPress={() => setSwitcherVisible(true)}
             activeOpacity={0.75}>
-            <Text style={styles.vehicleSelectorText}>
-              {activeVehicle.type} - {activeVehicle.name}
+            <Text style={[styles.vehicleSelectorText, { color: theme.primaryBlue }]}>
+              {displayVehicle.type} - {displayVehicle.name}
             </Text>
             <ChevronDownIcon />
           </TouchableOpacity>
 
           {/* Settings Gear Icon */}
           <TouchableOpacity
-            style={styles.settingsBtn}
+            style={[styles.settingsBtn, { backgroundColor: theme.iconBg }]}
             onPress={() => router.push('/settings' as any)}
             activeOpacity={0.7}>
-            <SettingsIcon />
+            <SettingsIcon color={theme.textPrimary} />
           </TouchableOpacity>
         </View>
 
@@ -150,32 +168,33 @@ export default function DashboardScreen() {
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#2563EB" />}>
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primaryBlue} />}>
           
           {/* 2. Vehicle Overview Card */}
           <VehicleOverviewCard
-            vehicleName={activeVehicle.name}
-            category={activeVehicle.type}
-            modelDetails={`${activeVehicle.model} • ${activeVehicle.regNumber}`}
-            odometer={activeVehicle.odometer}
+            vehicleName={displayVehicle.name}
+            category={displayVehicle.type}
+            modelDetails={`${displayVehicle.model} • ${displayVehicle.regNumber}`}
+            odometer={displayVehicle.odometer}
             onEditPress={() => {
-              setNewOdometer(activeVehicle.odometer.toString());
+              setNewOdometer(displayVehicle.odometer.toString());
               setOdoModalVisible(true);
             }}
           />
 
-          {/* 3. Quick Actions Row (Add Service, Add Expense, Add Trip, Add Document) */}
+          {/* 3. Quick Actions Row (Add Service, Add Expense, Add Document) */}
           <QuickActionsRow
             onAddService={() => setServiceModalVisible(true)}
             onAddExpense={() => setExpenseModalVisible(true)}
-            onAddTrip={() => setTripModalVisible(true)}
             onAddDocument={() => setDocModalVisible(true)}
           />
 
           {/* 4. Alerts, 2x2 Status Grid & Financial Summary */}
           <StatusGrid
+            activeVehicle={displayVehicle}
             onAnalyticsPress={() => router.push('/(tabs)/analytics' as any)}
             onAlertPress={() => setDocModalVisible(true)}
+            refreshTrigger={docRefreshKey}
           />
         </ScrollView>
 
@@ -183,56 +202,81 @@ export default function DashboardScreen() {
         <AddServiceModal
           visible={serviceModalVisible}
           onClose={() => setServiceModalVisible(false)}
-          currentOdometer={activeVehicle.odometer}
+          currentOdometer={displayVehicle.odometer}
+          onSave={(data) => {
+            if (data?.odometer && data.odometer > displayVehicle.odometer && contextVehicle) {
+              setContextVehicle({ ...contextVehicle, current_odometer: data.odometer });
+            }
+            setDocRefreshKey((k) => k + 1);
+          }}
         />
 
         <AddExpenseModal
           visible={expenseModalVisible}
           onClose={() => setExpenseModalVisible(false)}
-        />
-
-        <AddTripModal
-          visible={tripModalVisible}
-          onClose={() => setTripModalVisible(false)}
-          currentOdometer={activeVehicle.odometer}
+          onSave={(_data) => {
+            setDocRefreshKey((k) => k + 1);
+          }}
         />
 
         <AddDocumentModal
           visible={docModalVisible}
           onClose={() => setDocModalVisible(false)}
+          vehicleId={displayVehicle.id}
+          onSave={(_doc) => {
+            setDocRefreshKey((k) => k + 1);
+          }}
         />
 
         {/* Vehicle Switcher Modal */}
         <Modal visible={switcherVisible} transparent animationType="fade">
           <TouchableOpacity
-            style={styles.modalOverlay}
+            style={[styles.modalOverlay, { backgroundColor: theme.modalOverlay }]}
             activeOpacity={1}
             onPress={() => setSwitcherVisible(false)}>
-            <View style={styles.modalBox}>
-              <Text style={styles.modalTitle}>Select Vehicle</Text>
+            <View style={[styles.modalBox, { backgroundColor: theme.card, borderColor: theme.border, borderWidth: 1 }]}>
+              <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>Select Vehicle</Text>
               
-              <TouchableOpacity
-                style={[styles.modalVehicleItem, styles.modalVehicleItemActive]}
-                onPress={() => setSwitcherVisible(false)}>
-                <Text style={styles.modalVehicleName}>Bike - Croos</Text>
-                <Text style={styles.modalVehicleActiveCheck}>✓</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.modalVehicleItem}
-                onPress={() => {
-                  setActiveVehicle({
-                    id: '2',
-                    name: 'Primary SUV',
-                    type: 'Car',
-                    model: 'Mahindra XUV700',
-                    regNumber: 'MH 12 AB 1234',
-                    odometer: 12400,
-                  });
-                  setSwitcherVisible(false);
-                }}>
-                <Text style={styles.modalVehicleName}>Car - Primary SUV</Text>
-              </TouchableOpacity>
+              {vehicles && vehicles.length > 0 ? (
+                vehicles.map((v) => {
+                  const isSelected = contextVehicle?.id === v.id;
+                  return (
+                    <TouchableOpacity
+                      key={v.id}
+                      style={[
+                        styles.modalVehicleItem,
+                        { backgroundColor: theme.surface2, borderColor: theme.border },
+                        isSelected && [
+                          styles.modalVehicleItemActive,
+                          { backgroundColor: theme.blueSoft, borderColor: theme.primaryBlue },
+                        ],
+                      ]}
+                      onPress={() => {
+                        setContextVehicle(v);
+                        setSwitcherVisible(false);
+                      }}>
+                      <Text style={[styles.modalVehicleName, { color: theme.textPrimary }]}>
+                        {v.type || 'Vehicle'} - {v.brand} {v.model}
+                      </Text>
+                      {isSelected && (
+                        <Text style={[styles.modalVehicleActiveCheck, { color: theme.primaryBlue }]}>✓</Text>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })
+              ) : (
+                <TouchableOpacity
+                  style={[
+                    styles.modalVehicleItem,
+                    { backgroundColor: theme.blueSoft, borderColor: theme.primaryBlue },
+                  ]}
+                  onPress={() => setSwitcherVisible(false)}>
+                  <Text style={[styles.modalVehicleName, { color: theme.textPrimary }]}>
+                    {displayVehicle.type} - {displayVehicle.name}
+                  </Text>
+                  <Text style={[styles.modalVehicleActiveCheck, { color: theme.primaryBlue }]}>✓</Text>
+                </TouchableOpacity>
+              )}
 
               <TouchableOpacity
                 style={styles.addVehicleBtn}
@@ -240,7 +284,7 @@ export default function DashboardScreen() {
                   setSwitcherVisible(false);
                   router.push('/vehicle/add' as any);
                 }}>
-                <Text style={styles.addVehicleBtnText}>+ Add New Vehicle</Text>
+                <Text style={[styles.addVehicleBtnText, { color: theme.primaryBlue }]}>+ Add New Vehicle</Text>
               </TouchableOpacity>
             </View>
           </TouchableOpacity>
@@ -248,25 +292,26 @@ export default function DashboardScreen() {
 
         {/* Edit Odometer Modal */}
         <Modal visible={odoModalVisible} transparent animationType="fade">
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalBox}>
-              <Text style={styles.modalTitle}>Update Current Mileage</Text>
-              <Text style={styles.modalSubtitle}>Enter updated odometer reading in kilometers</Text>
+          <View style={[styles.modalOverlay, { backgroundColor: theme.modalOverlay }]}>
+            <View style={[styles.modalBox, { backgroundColor: theme.card, borderColor: theme.border, borderWidth: 1 }]}>
+              <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>Update Current Mileage</Text>
+              <Text style={[styles.modalSubtitle, { color: theme.textMuted }]}>Enter updated odometer reading in kilometers</Text>
               <TextInput
-                style={styles.odoInput}
+                style={[styles.odoInput, { backgroundColor: theme.inputBg, borderColor: theme.primaryBlue, color: theme.textPrimary }]}
                 value={newOdometer}
                 onChangeText={setNewOdometer}
+                placeholderTextColor={theme.textFaint}
                 keyboardType="numeric"
                 autoFocus
               />
               <View style={styles.modalButtonsRow}>
                 <TouchableOpacity
-                  style={styles.modalCancelBtn}
+                  style={[styles.modalCancelBtn, { backgroundColor: theme.iconBg }]}
                   onPress={() => setOdoModalVisible(false)}>
-                  <Text style={styles.modalCancelText}>Cancel</Text>
+                  <Text style={[styles.modalCancelText, { color: theme.textSecondary }]}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={styles.modalSaveBtn}
+                  style={[styles.modalSaveBtn, { backgroundColor: theme.primaryBlue }]}
                   onPress={handleUpdateOdometer}>
                   <Text style={styles.modalSaveText}>Update</Text>
                 </TouchableOpacity>

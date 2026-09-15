@@ -74,4 +74,19 @@ class FuelController extends Controller
 
         return response()->json($fuelEntry, 201);
     }
+
+    public function destroy($id)
+    {
+        $fuelEntry = FuelEntry::findOrFail($id);
+        $this->checkOwnership($fuelEntry->vehicle);
+
+        // Fuel logs create matching expenses; remove that linked record too.
+        Expense::where('source_type', FuelEntry::class)
+            ->where('source_id', $fuelEntry->id)
+            ->delete();
+
+        $fuelEntry->delete();
+
+        return response()->json(['message' => 'Fuel log deleted successfully.']);
+    }
 }

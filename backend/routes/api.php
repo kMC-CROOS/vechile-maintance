@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Route;
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/google-auth', [AuthController::class, 'googleAuth']);
+Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
 
 // Test route
 Route::get('/test', function () {
@@ -31,6 +32,7 @@ Route::get('/test', function () {
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me', [AuthController::class, 'me']);
+    Route::put('/me', [AuthController::class, 'updateProfile']);
 
     // Vehicle CRUD
     Route::get('/vehicles', [VehicleController::class, 'index']);
@@ -54,6 +56,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Fuel
     Route::get('/vehicles/{id}/fuel', [FuelController::class, 'index']);
     Route::post('/vehicles/{id}/fuel', [FuelController::class, 'store']);
+    Route::delete('/fuel/{id}', [FuelController::class, 'destroy']);
 
     // Replacements
     Route::get('/vehicles/{id}/replacements', [ReplacementController::class, 'index']);

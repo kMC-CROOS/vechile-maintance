@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -11,37 +12,92 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import Svg, { Path } from 'react-native-svg';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { AutomotiveHeroAnimation } from '@/components/auth/AutomotiveHeroAnimation';
 import { Colors, FontSizes, MinTouchTarget, Radii, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+import { useGoogleAuth } from '@/hooks/useGoogleAuth';
+import { GoogleAccountModal } from '@/components/auth/GoogleAccountModal';
+
+// Google SVG "G" Icon
+const GoogleIcon = () => (
+  <Svg width={18} height={18} viewBox="0 0 24 24">
+    <Path
+      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+      fill="#4285F4"
+    />
+    <Path
+      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+      fill="#34A853"
+    />
+    <Path
+      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+      fill="#FBBC05"
+    />
+    <Path
+      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+      fill="#EA4335"
+    />
+  </Svg>
+);
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { login, googleLogin } = useAuth();
+  const { login, forgotPassword } = useAuth();
+  const {
+    handleGooglePress,
+    googleLoading,
+    googleModalVisible,
+    setGoogleModalVisible,
+    handleGoogleEmailSubmit,
+  } = useGoogleAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const handleLogin = async () => {
-    setErrors({});
-    const newErrors: Record<string, string> = {};
-    if (!email.trim()) newErrors.email = 'Email address is required';
-    if (!password) newErrors.password = 'Password is required';
+  // Forgot password modal state
+  const [forgotModalVisible, setForgotModalVisible] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotError, setForgotError] = useState('');
+  const [forgotSuccess, setForgotSuccess] = useState('');
 
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {};
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!email.trim()) {
+      newErrors.email = 'Please enter your email address';
+    } else if (!emailRegex.test(email.trim())) {
+      newErrors.email = 'Please enter a valid email address';
+    }
+
+    if (!password) {
+      newErrors.password = 'Password is required';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleLogin = async (e?: any) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    setErrors({});
+
+    if (!validateForm()) {
       return;
     }
 
     setLoading(true);
     try {
       await login(email.trim(), password);
-      router.replace('/');
+      router.replace('/(tabs)' as any);
     } catch (err: any) {
       if (err.errors) {
         const formatted: Record<string, string> = {};
@@ -50,28 +106,40 @@ export default function LoginScreen() {
         });
         setErrors(formatted);
       } else {
-        Alert.alert('Sign In Failed', err.message || 'Invalid credentials');
+        const message = err.message || 'Invalid email or password.';
+        Alert.alert('Sign In Failed', message);
       }
     } finally {
       setLoading(false);
     }
   };
 
-  const handleGoogleLogin = async () => {
-    setErrors({});
-    setGoogleLoading(true);
+
+  const handleSendResetEmail = async (e?: any) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    setForgotError('');
+    setForgotSuccess('');
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!forgotEmail.trim() || !emailRegex.test(forgotEmail.trim())) {
+      setForgotError('Please enter a valid email address');
+      return;
+    }
+
+    setForgotLoading(true);
     try {
-      const googleUserEmail = email.trim() && email.includes('@') ? email.trim() : `driver_${Math.floor(1000 + Math.random() * 9000)}@gmail.com`;
-      await googleLogin({
-        email: googleUserEmail,
-        name: 'Google User',
-        google_id: `google_${Date.now()}`,
-      });
-      router.replace('/');
+      const msg = await forgotPassword(forgotEmail.trim());
+      setForgotSuccess(msg || 'If an account exists for this email, a password reset link has been sent.');
+      setTimeout(() => {
+        setForgotModalVisible(false);
+        setForgotSuccess('');
+        setForgotEmail('');
+      }, 3000);
     } catch (err: any) {
-      Alert.alert('Google Sign In Failed', err.message || 'Could not authenticate with Google');
+      setForgotError(err.message || 'Unable to process reset request. Please try again.');
     } finally {
-      setGoogleLoading(false);
+      setForgotLoading(false);
     }
   };
 
@@ -79,12 +147,27 @@ export default function LoginScreen() {
     <KeyboardAvoidingView
       style={styles.keyboardView}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}>
+        
+        {/* Brand Header */}
         <View style={styles.header}>
           <Text style={styles.brandTitle}>VehicleCare</Text>
-          <Text style={styles.subTitle}>Track your vehicle maintenance & costs effortlessly</Text>
+          <Text style={styles.brandTagline}>SMART FLEET & VEHICLE TELEMETRY</Text>
         </View>
 
+        {/* Premium Cinematic Automotive Hero Animation */}
+        <AutomotiveHeroAnimation />
+
+        {/* Motoring Slogan */}
+        <View style={styles.sloganContainer}>
+          <Text style={styles.sloganTitle}>YOUR VEHICLE. ALWAYS READY.</Text>
+          <Text style={styles.subTitle}>Sign in to manage maintenance, logs & telemetry</Text>
+        </View>
+
+        {/* Login Form Card */}
         <Card style={styles.card}>
           <Text style={styles.cardHeader}>Sign In</Text>
 
@@ -92,9 +175,13 @@ export default function LoginScreen() {
             label="Email Address"
             placeholder="name@example.com"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(val) => {
+              setEmail(val);
+              if (errors.email) setErrors((prev) => ({ ...prev, email: '' }));
+            }}
             keyboardType="email-address"
             autoCapitalize="none"
+            autoCorrect={false}
             error={errors.email}
           />
 
@@ -102,19 +189,34 @@ export default function LoginScreen() {
             label="Password"
             placeholder="••••••••"
             value={password}
-            onChangeText={setPassword}
+            onChangeText={(val) => {
+              setPassword(val);
+              if (errors.password) setErrors((prev) => ({ ...prev, password: '' }));
+            }}
             secureTextEntry
+            showPasswordToggle
             error={errors.password}
           />
 
           <TouchableOpacity
             style={styles.forgotBtn}
             activeOpacity={0.7}
-            onPress={() => Alert.alert('Notice', 'Password reset instructions have been sent to your email.')}>
+            onPress={() => {
+              setForgotEmail(email);
+              setForgotError('');
+              setForgotSuccess('');
+              setForgotModalVisible(true);
+            }}>
             <Text style={styles.forgotText}>Forgot password?</Text>
           </TouchableOpacity>
 
-          <Button title="Sign In" onPress={handleLogin} loading={loading} style={{ marginTop: Spacing.p12 }} />
+          <Button
+            title="Sign In"
+            onPress={handleLogin}
+            loading={loading}
+            disabled={loading || googleLoading}
+            style={{ marginTop: Spacing.p8 }}
+          />
 
           <View style={styles.dividerRow}>
             <View style={styles.divider} />
@@ -125,12 +227,15 @@ export default function LoginScreen() {
           <TouchableOpacity
             style={[styles.googleBtn, (loading || googleLoading) && { opacity: 0.6 }]}
             activeOpacity={0.7}
-            onPress={handleGoogleLogin}
+            onPress={handleGooglePress}
             disabled={loading || googleLoading}>
             {googleLoading ? (
               <ActivityIndicator color={Colors.textPrimary} size="small" />
             ) : (
-              <Text style={styles.googleBtnText}>G  Continue with Google</Text>
+              <View style={styles.googleBtnContent}>
+                <GoogleIcon />
+                <Text style={styles.googleBtnText}>Continue with Google</Text>
+              </View>
             )}
           </TouchableOpacity>
         </Card>
@@ -145,6 +250,67 @@ export default function LoginScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Forgot Password Modal */}
+      <Modal visible={forgotModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Reset Password</Text>
+            <Text style={styles.modalSubtitle}>
+              Enter your email address to receive password reset instructions.
+            </Text>
+
+            {forgotSuccess ? (
+              <View style={styles.successBanner}>
+                <Text style={styles.successBannerText}>✓ {forgotSuccess}</Text>
+              </View>
+            ) : (
+              <>
+                <Input
+                  label="Registered Email"
+                  placeholder="name@example.com"
+                  value={forgotEmail}
+                  onChangeText={(val) => {
+                    setForgotEmail(val);
+                    if (forgotError) setForgotError('');
+                  }}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  error={forgotError}
+                />
+
+                <View style={styles.modalBtnRow}>
+                  <TouchableOpacity
+                    style={styles.modalCancelBtn}
+                    activeOpacity={0.7}
+                    onPress={() => setForgotModalVisible(false)}
+                    disabled={forgotLoading}>
+                    <Text style={styles.modalCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+
+                  <Button
+                    title="Send Reset Link"
+                    onPress={handleSendResetEmail}
+                    loading={forgotLoading}
+                    disabled={forgotLoading}
+                    style={{ flex: 1.5 }}
+                  />
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Google Account Modal (Used when OAuth client ID is not configured in .env) */}
+      <GoogleAccountModal
+        visible={googleModalVisible}
+        initialEmail={email}
+        loading={googleLoading}
+        onClose={() => setGoogleModalVisible(false)}
+        onConfirm={handleGoogleEmailSubmit}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -158,6 +324,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: 'center',
     padding: Spacing.screenPadding,
+    paddingVertical: Spacing.p32,
   },
   header: {
     alignItems: 'center',
@@ -169,14 +336,36 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     letterSpacing: -0.5,
   },
+  brandTagline: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#38BDF8',
+    letterSpacing: 1.5,
+    marginTop: 3,
+  },
+  sloganContainer: {
+    alignItems: 'center',
+    marginBottom: Spacing.p16,
+    paddingHorizontal: Spacing.screenPadding,
+  },
+  sloganTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#F1F5F9',
+    letterSpacing: 1.2,
+    textAlign: 'center',
+  },
   subTitle: {
-    fontSize: FontSizes.sm,
+    fontSize: FontSizes.xs,
     color: Colors.textDim,
     textAlign: 'center',
-    marginTop: Spacing.p8,
+    marginTop: Spacing.p4,
   },
   card: {
     padding: Spacing.p24,
+    maxWidth: 440,
+    alignSelf: 'center',
+    width: '100%',
   },
   cardHeader: {
     fontSize: FontSizes.xl,
@@ -193,6 +382,7 @@ const styles = StyleSheet.create({
   forgotText: {
     color: Colors.primaryBlue,
     fontSize: FontSizes.sm,
+    fontWeight: '600',
   },
   dividerRow: {
     flexDirection: 'row',
@@ -218,6 +408,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
   },
+  googleBtnContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
   googleBtnText: {
     color: Colors.textPrimary,
     fontWeight: '600',
@@ -242,4 +437,67 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.sm,
     fontWeight: '600',
   },
+  /* Modal */
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(10, 18, 32, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.screenPadding,
+  },
+  modalBox: {
+    backgroundColor: Colors.surface,
+    borderColor: Colors.border,
+    borderWidth: 1,
+    borderRadius: Radii.large,
+    padding: Spacing.p24,
+    width: '100%',
+    maxWidth: 400,
+  },
+  modalTitle: {
+    fontSize: FontSizes.lg,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    marginBottom: Spacing.p8,
+  },
+  modalSubtitle: {
+    fontSize: FontSizes.sm,
+    color: Colors.textDim,
+    lineHeight: 20,
+    marginBottom: Spacing.p20,
+  },
+  modalBtnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.p12,
+    marginTop: Spacing.p8,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: Radii.medium,
+    backgroundColor: Colors.surface2,
+  },
+  modalCancelText: {
+    color: Colors.textDim,
+    fontSize: FontSizes.sm,
+    fontWeight: '600',
+  },
+  successBanner: {
+    backgroundColor: 'rgba(45, 212, 167, 0.12)',
+    borderColor: Colors.success,
+    borderWidth: 1,
+    borderRadius: Radii.medium,
+    padding: Spacing.p16,
+    marginVertical: Spacing.p12,
+  },
+  successBannerText: {
+    color: Colors.success,
+    fontSize: FontSizes.sm,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
 });
+

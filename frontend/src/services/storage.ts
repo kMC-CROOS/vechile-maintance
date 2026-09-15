@@ -26,3 +26,21 @@ export const removeAuthToken = async (): Promise<void> => {
     await SecureStore.deleteItemAsync(TOKEN_KEY);
   }
 };
+
+export const getSetting = async (key: string, defaultValue: string = ''): Promise<string> => {
+  if (Platform.OS === 'web') {
+    return localStorage.getItem(key) ?? defaultValue;
+  } else {
+    const val = await SecureStore.getItemAsync(key);
+    return val ?? defaultValue;
+  }
+};
+
+export const setSetting = async (key: string, value: string): Promise<void> => {
+  if (Platform.OS === 'web') {
+    localStorage.setItem(key, value);
+  } else {
+    await SecureStore.setItemAsync(key, value);
+  }
+};
+
