@@ -44,6 +44,8 @@ const DocIcon = () => (
   </Svg>
 );
 
+import { AnimatedPressableCard } from '@/components/ui/AnimatedPressableCard';
+
 export const QuickActionsRow: React.FC<QuickActionsRowProps> = ({
   onAddService,
   onAddExpense,
@@ -81,15 +83,12 @@ export const QuickActionsRow: React.FC<QuickActionsRowProps> = ({
   return (
     <View style={styles.container}>
       {actions.map((item) => (
-        <TouchableOpacity
+        <AnimatedPressableCard
           key={item.id}
           style={styles.actionItem}
-          onPress={(e: any) => {
-            e?.preventDefault?.();
-            e?.stopPropagation?.();
-            item.onPress();
-          }}
-          activeOpacity={0.75}>
+          onPress={item.onPress}
+          scaleTo={0.92}
+          accessibilityLabel={item.title}>
           <View
             style={[
               styles.roundButton,
@@ -100,7 +99,7 @@ export const QuickActionsRow: React.FC<QuickActionsRowProps> = ({
           <Text style={[styles.actionTitle, { color: theme.textPrimary }]} numberOfLines={1}>
             {item.title}
           </Text>
-        </TouchableOpacity>
+        </AnimatedPressableCard>
       ))}
     </View>
   );

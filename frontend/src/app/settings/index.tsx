@@ -19,6 +19,8 @@ import { useVehicle, Vehicle } from '@/context/VehicleContext';
 import { useAppTheme } from '@/context/ThemeContext';
 import { apiFetch } from '@/services/api';
 import { getSetting, setSetting } from '@/services/storage';
+import { PhoneNumberInput } from '@/components/ui/PhoneNumberInput';
+import { isValidE164 } from '@/utils/phone';
 
 // --- SVGs & Icons ---
 const ChevronRightIcon = ({ color = '#94A3B8' }: { color?: string }) => (
@@ -142,6 +144,7 @@ export default function SettingsScreen() {
   // Profile Edit Form state
   const [editName, setEditName] = useState<string>('');
   const [editPhone, setEditPhone] = useState<string>('');
+  const [editPhoneValid, setEditPhoneValid] = useState<boolean>(false);
   const [isProfileSaving, setIsProfileSaving] = useState<boolean>(false);
 
   // Add Vehicle Form state
@@ -178,6 +181,7 @@ export default function SettingsScreen() {
   const openEditProfile = () => {
     setEditName(user?.name || '');
     setEditPhone(user?.phone || '');
+    setEditPhoneValid(!!user?.phone && isValidE164(user.phone));
     setIsEditProfileOpen(true);
   };
 
@@ -186,9 +190,13 @@ export default function SettingsScreen() {
       Alert.alert('Required', 'Please enter your name.');
       return;
     }
+    if (editPhone && !editPhoneValid && !isValidE164(editPhone)) {
+      Alert.alert('Invalid phone', 'Please enter a valid international phone number.');
+      return;
+    }
     setIsProfileSaving(true);
     try {
-      await updateProfile({ name: editName.trim(), phone: editPhone.trim() || undefined });
+      await updateProfile({ name: editName.trim(), phone: editPhone || undefined });
       setIsEditProfileOpen(false);
       showToast('Profile updated successfully!');
     } catch (err: any) {
@@ -599,13 +607,22 @@ export default function SettingsScreen() {
             />
 
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>Phone Number</Text>
-            <TextInput
-              style={[styles.inputField, { backgroundColor: theme.inputBg, borderColor: theme.inputBorder, color: theme.textPrimary }]}
+            <PhoneNumberInput
+              label=""
               value={editPhone}
-              onChangeText={setEditPhone}
-              placeholder="e.g. +91 9876543210"
-              placeholderTextColor={theme.textFaint}
-              keyboardType="phone-pad"
+              onChangePhone={(e164, meta) => {
+                setEditPhone(e164);
+                setEditPhoneValid(meta.isValid);
+              }}
+              colors={{
+                text: theme.textPrimary,
+                muted: theme.textSecondary,
+                faint: theme.textFaint,
+                border: theme.inputBorder,
+                background: theme.inputBg,
+                accent: theme.primaryBlue,
+                error: theme.error,
+              }}
             />
 
             <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>Email Address (Read-only)</Text>

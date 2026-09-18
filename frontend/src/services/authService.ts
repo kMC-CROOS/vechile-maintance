@@ -6,6 +6,7 @@ export interface UserProfile {
   email: string;
   phone?: string;
   created_at?: string;
+  vehicles_count?: number;
 }
 
 export interface AuthResponse {
@@ -63,9 +64,6 @@ export const authService = {
       method: 'POST',
       body: {
         id_token: data.id_token,
-        email: data.email ? data.email.trim() : undefined,
-        name: data.name?.trim() || undefined,
-        google_id: data.google_id,
       },
     });
   },
@@ -77,6 +75,32 @@ export const authService = {
     return await apiFetch<{ message: string; status: string }>('/forgot-password', {
       method: 'POST',
       body: { email: email.trim() },
+    });
+  },
+
+  async requestPhoneOtp(phone: string): Promise<{ message: string; status: string }> {
+    return await apiFetch<{ message: string; status: string }>('/forgot-password/phone/request', {
+      method: 'POST',
+      body: { phone },
+    });
+  },
+
+  async verifyPhoneOtp(phone: string, code: string): Promise<{ message: string; reset_token: string }> {
+    return await apiFetch<{ message: string; reset_token: string }>('/forgot-password/phone/verify', {
+      method: 'POST',
+      body: { phone, code },
+    });
+  },
+
+  async resetPasswordWithPhone(data: {
+    phone: string;
+    token: string;
+    password: string;
+    password_confirmation: string;
+  }): Promise<{ message: string; status: string }> {
+    return await apiFetch<{ message: string; status: string }>('/forgot-password/phone/reset', {
+      method: 'POST',
+      body: data,
     });
   },
 

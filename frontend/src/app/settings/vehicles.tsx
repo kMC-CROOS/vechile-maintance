@@ -16,6 +16,7 @@ import { Colors, FontSizes, MinTouchTarget, Radii, Spacing } from '@/constants/t
 import { useVehicle } from '@/context/VehicleContext';
 import { apiFetch } from '@/services/api';
 import { formatOdometer } from '@/utils/format';
+import { navigatePostAuth } from '@/utils/postAuthNavigation';
 
 export default function ManageVehiclesScreen() {
   const router = useRouter();
@@ -38,7 +39,7 @@ export default function ManageVehiclesScreen() {
               await apiFetch(`/vehicles/${vehicleId}`, { method: 'DELETE' });
               const updated = await reloadVehicles();
               if (updated.length === 0) {
-                router.replace('/empty-home' as any);
+                navigatePostAuth(0);
               }
             } catch (err: any) {
               Alert.alert('Error', err.message || 'Failed to delete vehicle');

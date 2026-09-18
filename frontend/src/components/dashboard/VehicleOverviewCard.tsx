@@ -2,6 +2,9 @@ import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Svg, { Path, Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
 
+import { AnimatedCountText } from '@/components/ui/AnimatedCountText';
+import { AnimatedPressableCard } from '@/components/ui/AnimatedPressableCard';
+
 interface VehicleOverviewCardProps {
   vehicleName?: string;
   category?: string;
@@ -58,17 +61,21 @@ export const VehicleOverviewCard: React.FC<VehicleOverviewCardProps> = ({
               <Text style={styles.categoryBadgeText}>🛵 {category}</Text>
             </View>
             <View style={styles.odometerBadge}>
-              <Text style={styles.odometerText}>{odometer.toLocaleString()} KM</Text>
+              <AnimatedCountText
+                style={styles.odometerText}
+                value={odometer}
+                suffix=" KM"
+              />
             </View>
           </View>
 
-          <TouchableOpacity
+          <AnimatedPressableCard
             style={styles.editButton}
             onPress={onEditPress}
-            activeOpacity={0.75}
+            scaleTo={0.9}
             accessibilityLabel="Edit Odometer or Vehicle">
             <EditPencilIcon />
-          </TouchableOpacity>
+          </AnimatedPressableCard>
         </View>
 
         {/* Vehicle Name & Model Specs */}

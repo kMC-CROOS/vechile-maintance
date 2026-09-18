@@ -16,10 +16,13 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { PasswordField } from '@/components/ui/PasswordField';
+import { PhoneNumberInput } from '@/components/ui/PhoneNumberInput';
+import { isValidE164 } from '@/utils/phone';
 import { Colors, FontSizes, MinTouchTarget, Radii, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useGoogleAuth } from '@/hooks/useGoogleAuth';
 import { GoogleAccountModal } from '@/components/auth/GoogleAccountModal';
+import { navigatePostAuth } from '@/utils/postAuthNavigation';
 
 // Google SVG "G" Icon
 const GoogleIcon = () => (
@@ -56,6 +59,8 @@ export default function RegisterScreen() {
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [phoneValid, setPhoneValid] = useState(false);
   const [password, setPassword] = useState('');
   const [passwordConfirmation, setPasswordConfirmation] = useState('');
   const [loading, setLoading] = useState(false);
@@ -97,6 +102,10 @@ export default function RegisterScreen() {
       newErrors.email = 'Please enter a valid email address';
     }
 
+    if (phone && !phoneValid && !isValidE164(phone)) {
+      newErrors.phone = 'Please enter a valid international phone number';
+    }
+
     if (!password) {
       newErrors.password = 'Password must contain at least 8 characters';
     } else if (password.length < 8) {
@@ -127,11 +136,12 @@ export default function RegisterScreen() {
       await register({
         name: name.trim(),
         email: email.trim(),
+        phone: phone || undefined,
         password,
         password_confirmation: passwordConfirmation,
       });
-      // Navigate directly to Home/Dashboard
-      router.replace('/(tabs)' as any);
+      // New user has 0 vehicles by definition. Route directly to Add Vehicle
+      navigatePostAuth(0);
     } catch (err: any) {
       if (err.errors) {
         const formatted: Record<string, string> = {};
@@ -197,6 +207,16 @@ export default function RegisterScreen() {
             autoCapitalize="none"
             autoCorrect={false}
             error={errors.email}
+          />
+
+          <PhoneNumberInput
+            value={phone}
+            error={errors.phone}
+            onChangePhone={(e164, meta) => {
+              setPhone(e164);
+              setPhoneValid(meta.isValid);
+              if (errors.phone) setErrors((prev) => ({ ...prev, phone: '' }));
+            }}
           />
 
           <PasswordField

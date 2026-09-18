@@ -1,9 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -11,7 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import * as WebBrowser from 'expo-web-browser';
 import { Button } from '@/components/ui/Button';
@@ -21,8 +20,10 @@ import { PasswordField } from '@/components/ui/PasswordField';
 import { AutomotiveHeroAnimation } from '@/components/auth/AutomotiveHeroAnimation';
 import { Colors, FontSizes, MinTouchTarget, Radii, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+import { useVehicle } from '@/context/VehicleContext';
 import { useGoogleAuth } from '@/hooks/useGoogleAuth';
 import { GoogleAccountModal } from '@/components/auth/GoogleAccountModal';
+import { navigatePostAuth } from '@/utils/postAuthNavigation';
 
 // Google SVG "G" Icon
 const GoogleIcon = () => (
@@ -50,7 +51,9 @@ WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { login, forgotPassword } = useAuth();
+  const { reset } = useLocalSearchParams<{ reset?: string }>();
+  const { login } = useAuth();
+  const { reloadVehicles } = useVehicle();
   const {
     handleGooglePress,
     googleLoading,
@@ -63,14 +66,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
-
-
-  // Forgot password modal state
-  const [forgotModalVisible, setForgotModalVisible] = useState(false);
-  const [forgotEmail, setForgotEmail] = useState('');
-  const [forgotLoading, setForgotLoading] = useState(false);
-  const [forgotError, setForgotError] = useState('');
-  const [forgotSuccess, setForgotSuccess] = useState('');
+  const [resetSuccess, setResetSuccess] = useState(reset === '1');
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
@@ -102,7 +98,8 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       await login(email.trim(), password);
-      router.replace('/(tabs)' as any);
+      const userVehicles = await reloadVehicles();
+      navigatePostAuth(userVehicles.length);
     } catch (err: any) {
       if (err.errors) {
         const formatted: Record<string, string> = {};
@@ -118,36 +115,6 @@ export default function LoginScreen() {
       setLoading(false);
     }
   };
-
-  const handleSendResetEmail = async (e?: any) => {
-    e?.preventDefault?.();
-    e?.stopPropagation?.();
-    setForgotError('');
-    setForgotSuccess('');
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!forgotEmail.trim() || !emailRegex.test(forgotEmail.trim())) {
-      setForgotError('Please enter a valid email address');
-      return;
-    }
-
-    setForgotLoading(true);
-    try {
-      const msg = await forgotPassword(forgotEmail.trim());
-      setForgotSuccess(msg || 'If an account exists for this email, a password reset link has been sent.');
-      setTimeout(() => {
-        setForgotModalVisible(false);
-        setForgotSuccess('');
-        setForgotEmail('');
-      }, 3000);
-    } catch (err: any) {
-      setForgotError(err.message || 'Unable to process reset request. Please try again.');
-    } finally {
-      setForgotLoading(false);
-    }
-  };
-
-
 
   return (
     <KeyboardAvoidingView
@@ -176,6 +143,11 @@ export default function LoginScreen() {
         {/* Login Form Card */}
         <Card style={styles.card}>
           <Text style={styles.cardHeader}>Sign In</Text>
+          {resetSuccess ? (
+            <View style={styles.successBanner}>
+              <Text style={styles.successBannerText}>✓ Password updated. You can now sign in.</Text>
+            </View>
+          ) : null}
 
           <Input
             label="Email Address"
@@ -206,10 +178,11 @@ export default function LoginScreen() {
             style={styles.forgotBtn}
             activeOpacity={0.7}
             onPress={() => {
-              setForgotEmail(email);
-              setForgotError('');
-              setForgotSuccess('');
-              setForgotModalVisible(true);
+              setResetSuccess(false);
+              router.push({
+                pathname: '/(auth)/forgot-password',
+                params: email.trim() ? { email: email.trim() } : {},
+              } as any);
             }}>
             <Text style={styles.forgotText}>Forgot password?</Text>
           </TouchableOpacity>
@@ -254,58 +227,6 @@ export default function LoginScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
-
-      {/* Forgot Password Modal */}
-      <Modal visible={forgotModalVisible} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>Reset Password</Text>
-            <Text style={styles.modalSubtitle}>
-              Enter your email address to receive password reset instructions.
-            </Text>
-
-            {forgotSuccess ? (
-              <View style={styles.successBanner}>
-                <Text style={styles.successBannerText}>✓ {forgotSuccess}</Text>
-              </View>
-            ) : (
-              <>
-                <Input
-                  label="Registered Email"
-                  placeholder="name@example.com"
-                  value={forgotEmail}
-                  onChangeText={(val) => {
-                    setForgotEmail(val);
-                    if (forgotError) setForgotError('');
-                  }}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  error={forgotError}
-                />
-
-                <View style={styles.modalBtnRow}>
-                  <TouchableOpacity
-                    style={styles.modalCancelBtn}
-                    activeOpacity={0.7}
-                    onPress={() => setForgotModalVisible(false)}
-                    disabled={forgotLoading}>
-                    <Text style={styles.modalCancelText}>Cancel</Text>
-                  </TouchableOpacity>
-
-                  <Button
-                    title="Send Reset Link"
-                    onPress={handleSendResetEmail}
-                    loading={forgotLoading}
-                    disabled={forgotLoading}
-                    style={{ flex: 1.5 }}
-                  />
-                </View>
-              </>
-            )}
-          </View>
-        </View>
-      </Modal>
 
       {/* Google Account Modal (Used when OAuth client ID is not configured in .env) */}
       <GoogleAccountModal
@@ -444,54 +365,6 @@ const styles = StyleSheet.create({
   },
   linkText: {
     color: Colors.primaryBlue,
-    fontSize: FontSizes.sm,
-    fontWeight: '600',
-  },
-  /* Modal */
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(10, 18, 32, 0.75)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: Spacing.screenPadding,
-  },
-  modalBox: {
-    backgroundColor: Colors.surface,
-    borderColor: Colors.border,
-    borderWidth: 1,
-    borderRadius: Radii.large,
-    padding: Spacing.p24,
-    width: '100%',
-    maxWidth: 400,
-  },
-  modalTitle: {
-    fontSize: FontSizes.lg,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: Spacing.p8,
-  },
-  modalSubtitle: {
-    fontSize: FontSizes.sm,
-    color: Colors.textDim,
-    lineHeight: 20,
-    marginBottom: Spacing.p20,
-  },
-  modalBtnRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.p12,
-    marginTop: Spacing.p8,
-  },
-  modalCancelBtn: {
-    flex: 1,
-    minHeight: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: Radii.medium,
-    backgroundColor: Colors.surface2,
-  },
-  modalCancelText: {
-    color: Colors.textDim,
     fontSize: FontSizes.sm,
     fontWeight: '600',
   },

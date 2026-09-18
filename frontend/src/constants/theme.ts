@@ -116,6 +116,8 @@ export const Colors = {
   primaryBlue: LightThemeColors.primaryBlue,
   blueDim: LightThemeColors.blueDim,
   textPrimary: LightThemeColors.textPrimary,
+  textSecondary: LightThemeColors.textSecondary,
+  textMuted: LightThemeColors.textMuted,
   textDim: LightThemeColors.textMuted,
   textFaint: LightThemeColors.textFaint,
   success: LightThemeColors.success,
@@ -184,6 +186,7 @@ export const Spacing = {
   // Scale tokens
   p4: 4,
   p8: 8,
+  p10: 10,
   p12: 12,
   p16: 16,
   p20: 20,

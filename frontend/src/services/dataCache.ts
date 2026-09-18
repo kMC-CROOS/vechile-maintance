@@ -8,7 +8,7 @@ interface CacheEntry<T> {
   timestamp: number;
 }
 
-class DataCache {
+export class DataCache {
   private cache = new Map<string, CacheEntry<any>>();
   private defaultTTL = 60 * 1000; // 60 seconds
 
@@ -39,6 +39,24 @@ class DataCache {
         this.cache.delete(key);
       }
     }
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+
+  /**
+   * Helper to build cache keys strictly scoped to user and vehicle ID.
+   * Prevents cross-account data leakage.
+   */
+  static scopedKey(
+    userId?: number | string | null,
+    vehicleId?: number | string | null,
+    suffix?: string
+  ): string {
+    const u = userId ? `u_${userId}` : 'u_anon';
+    const v = vehicleId ? `v_${vehicleId}` : 'v_none';
+    return suffix ? `${u}:${v}:${suffix}` : `${u}:${v}`;
   }
 }
 

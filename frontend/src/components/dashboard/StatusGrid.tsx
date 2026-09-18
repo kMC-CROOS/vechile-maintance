@@ -1,20 +1,50 @@
-import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import Svg, { Path, Circle } from 'react-native-svg';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Dimensions,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import Animated, { FadeIn, FadeInDown, FadeInUp } from 'react-native-reanimated';
+import Svg, { Path } from 'react-native-svg';
+
+import { AnimatedCountText } from '@/components/ui/AnimatedCountText';
+import { AnimatedPressableCard } from '@/components/ui/AnimatedPressableCard';
+import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
-import { dataCache } from '@/services/dataCache';
+import { apiFetch } from '@/services/api';
+import { DataCache, dataCache } from '@/services/dataCache';
+
+interface AlertItem {
+  id?: string | number;
+  title: string;
+  category: string;
+  daysLeft?: number;
+  dueDate?: string;
+  dueInfo?: string;
+}
 
 interface StatusGridProps {
   activeVehicle?: {
     id?: string | number;
+    user_id?: number;
     name?: string;
     odometer?: number;
     current_odometer?: number;
-    insurance?: { expiryDate?: string };
+    insurance?: { expiryDate?: string; provider?: string };
+    warranty?: { expiryDate?: string };
+    tax_record?: { valid_until?: string };
     puc?: { expiryDate?: string };
   };
   onAnalyticsPress?: () => void;
   onAlertPress?: () => void;
+  onNextServicePress?: () => void;
+  onInsurancePress?: () => void;
+  onPucPress?: () => void;
   refreshTrigger?: number;
 }
 
@@ -31,52 +61,23 @@ const WarningIcon = () => (
   </Svg>
 );
 
-const DOCS_STORAGE_KEY = 'vehiclecare_documents_records';
-const SERVICES_STORAGE_KEY = 'vehiclecare_service_records_list';
-const FUEL_STORAGE_KEY = 'vehiclecare_fuel_logs_list';
-const EXPENSES_STORAGE_KEY = 'vehiclecare_expenses_list';
-
-function getParsedStorage<T>(key: string, force = false): T[] {
-  const cacheKey = `status_grid_${key}`;
-  if (!force) {
-    const cached = dataCache.get<T[]>(cacheKey, 30000);
-    if (cached && Array.isArray(cached)) return cached;
-  }
-  if (typeof window !== 'undefined' && window.localStorage) {
-    try {
-      const raw = window.localStorage.getItem(key);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          dataCache.set(cacheKey, parsed);
-          return parsed;
-        }
-      }
-    } catch {}
-  }
-  return [];
-}
-
 export const StatusGrid: React.FC<StatusGridProps> = ({
   activeVehicle,
   onAnalyticsPress,
   onAlertPress,
+  onNextServicePress,
+  onInsurancePress,
+  onPucPress,
   refreshTrigger = 0,
 }) => {
-  // Top Alert State
-  const [docAlert, setDocAlert] = useState<{
-    title: string;
-    category: string;
-    daysLeft: number;
-    dueDate: string;
-    totalAlerts: number;
-  }>({
-    title: 'Vehicle Warranty',
-    category: 'warranty',
-    daysLeft: 8,
-    dueDate: '2026-09-22',
-    totalAlerts: 1,
-  });
+  const { user } = useAuth();
+  const { isDark, theme } = useAppTheme();
+
+  // Active Alert Carousel Index
+  const [activeAlertIndex, setActiveAlertIndex] = useState(0);
+
+  // Alerts State
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
 
   // Next Service State
   const [nextServiceInfo, setNextServiceInfo] = useState<{
@@ -121,258 +122,275 @@ export const StatusGrid: React.FC<StatusGridProps> = ({
     fuelThisMonth: 0,
   });
 
+  // Primary data fetcher from backend API with strictly user-scoped cache
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.localStorage) return;
+    let isCancelled = false;
 
-    const currentOdo = activeVehicle?.odometer ?? activeVehicle?.current_odometer ?? 1500;
-    const today = new Date();
-    const currentYearMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-    const force = Boolean(refreshTrigger && refreshTrigger > 0);
-
-    // 1. Process Documents (Insurance, PUC, Tax, Warranty, Alerts)
-    try {
-      const parsedDocs = getParsedStorage<any>(DOCS_STORAGE_KEY, force);
-
-      // Check active vehicle fallback
-      let foundInsurance = parsedDocs.find(
-        (d: any) =>
-          d.category === 'insurance' ||
-          d.doc_type === 'insurance' ||
-          (d.title && d.title.toLowerCase().includes('insurance'))
-      );
-
-      let insuranceDate = foundInsurance?.valid_until || foundInsurance?.expiry_date;
-      if (!insuranceDate && activeVehicle?.insurance?.expiryDate) {
-        insuranceDate = activeVehicle.insurance.expiryDate;
+    const fetchDashboardData = async () => {
+      if (!user?.id || !activeVehicle?.id) {
+        // Reset to clean empty states when no vehicle or no user
+        setAlerts([]);
+        setNextServiceInfo({ isSet: false, recommendedKm: 4500 });
+        setInsuranceInfo({ isSet: false });
+        setPucInfo({ isSet: false });
+        setAvgMileage('N/A');
+        setFinancialStats({ totalExpenses: 0, fuelThisMonth: 0 });
+        return;
       }
 
-      if (insuranceDate) {
-        const exp = new Date(insuranceDate);
+      const cacheKey = DataCache.scopedKey(user.id, activeVehicle.id, 'dashboard');
+      const force = Boolean(refreshTrigger && refreshTrigger > 0);
+
+      if (!force) {
+        const cached = dataCache.get<any>(cacheKey, 30000);
+        if (cached && !isCancelled) {
+          applyDashboardData(cached);
+          return;
+        }
+      }
+
+      try {
+        const data = await apiFetch(`/vehicles/${activeVehicle.id}/dashboard`);
+        if (!isCancelled && data) {
+          dataCache.set(cacheKey, data);
+          applyDashboardData(data);
+        }
+      } catch (err) {
+        // Graceful fallback from vehicle model fields if offline
+        if (!isCancelled) {
+          fallbackFromVehicle();
+        }
+      }
+    };
+
+    const applyDashboardData = (data: any) => {
+      const today = new Date();
+      const currentOdo = Number(data.odometer ?? activeVehicle?.current_odometer ?? 1500);
+
+      // 1. Process Reminders & Alerts
+      const reminderAlerts: AlertItem[] = [];
+      if (Array.isArray(data.top_reminders) && data.top_reminders.length > 0) {
+        data.top_reminders.forEach((r: any) => {
+          reminderAlerts.push({
+            id: r.id,
+            title: r.title || 'Vehicle Reminder',
+            category: r.category || 'reminder',
+            dueInfo: r.due_info || r.description,
+            dueDate: r.target_value ? String(r.target_value).split('T')[0] : undefined,
+          });
+        });
+      }
+
+      // Check insurance in vehicle relationship
+      const ins = data.vehicle?.insurance || activeVehicle?.insurance;
+      if (ins?.expiry_date || ins?.expiryDate) {
+        const expiryStr = ins.expiry_date || ins.expiryDate;
+        const exp = new Date(expiryStr);
         const diffDays = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 3600 * 24));
         setInsuranceInfo({
           isSet: true,
-          dueDate: insuranceDate,
+          dueDate: expiryStr,
           daysLeft: diffDays,
-          provider: foundInsurance?.provider || 'Comprehensive Cover',
+          provider: ins.provider || 'Comprehensive Cover',
         });
       } else {
         setInsuranceInfo({ isSet: false });
       }
 
-      // PUC Expiry
-      let foundPuc = parsedDocs.find(
-        (d: any) =>
-          d.category === 'puc' ||
-          d.doc_type === 'puc' ||
-          d.category === 'emission' ||
-          (d.title &&
-            (d.title.toLowerCase().includes('puc') ||
-              d.title.toLowerCase().includes('pollution') ||
-              d.title.toLowerCase().includes('emission')))
-      );
-
-      let pucDate = foundPuc?.valid_until || foundPuc?.expiry_date;
-      if (!pucDate && activeVehicle?.puc?.expiryDate) {
-        pucDate = activeVehicle.puc.expiryDate;
-      }
-
-      if (pucDate) {
-        const exp = new Date(pucDate);
+      // Check tax record / PUC in vehicle relationship
+      const tax = data.vehicle?.tax_record || data.vehicle?.taxRecord || activeVehicle?.tax_record;
+      if (tax?.valid_until) {
+        const exp = new Date(tax.valid_until);
         const diffDays = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 3600 * 24));
         setPucInfo({
           isSet: true,
-          dueDate: pucDate,
+          dueDate: tax.valid_until,
+          daysLeft: diffDays,
+        });
+      } else if (activeVehicle?.puc?.expiryDate) {
+        const exp = new Date(activeVehicle.puc.expiryDate);
+        const diffDays = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 3600 * 24));
+        setPucInfo({
+          isSet: true,
+          dueDate: activeVehicle.puc.expiryDate,
           daysLeft: diffDays,
         });
       } else {
         setPucInfo({ isSet: false });
       }
 
-      // Top Alert computation (earliest expiring active document)
-      if (parsedDocs.length > 0) {
-        const sorted = parsedDocs
-          .map((d: any) => {
-            const targetDate = d.valid_until || d.expiry_date || '2026-09-22';
-            const exp = new Date(targetDate);
-            const diffDays = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 3600 * 24));
-            return {
-              title: d.title || 'Vehicle Document',
-              category: d.doc_type || d.category || 'warranty',
-              daysLeft: diffDays,
-              dueDate: targetDate,
-            };
-          })
-          .sort((a, b) => a.daysLeft - b.daysLeft);
-
-        const earliest = sorted[0];
-        if (earliest) {
-          setDocAlert({
-            title: earliest.title,
-            category: earliest.category,
-            daysLeft: earliest.daysLeft,
-            dueDate: earliest.dueDate,
-            totalAlerts: sorted.length,
-          });
-        }
-      }
-    } catch {}
-
-    // 2. Process Service Records (Next Service Due Odometer & Date)
-    try {
-      const parsedServices = getParsedStorage<any>(SERVICES_STORAGE_KEY, force);
-      if (parsedServices.length > 0) {
-        // Find most recent service record that specified next_service_due_odometer or nextDueOdometer
-        const serviceWithNextDue = parsedServices.find(
-          (s: any) =>
-            s.next_service_due_odometer != null ||
-            s.nextDueOdometer != null ||
-            s.next_service_due != null
-        );
-
-        if (serviceWithNextDue) {
-          const targetDueOdo = Number(
-            serviceWithNextDue.next_service_due_odometer ??
-              serviceWithNextDue.nextDueOdometer ??
-              serviceWithNextDue.next_service_due
-          );
-          if (!isNaN(targetDueOdo) && targetDueOdo > 0) {
-            const remaining = targetDueOdo - currentOdo;
-            setNextServiceInfo({
-              isSet: true,
-              dueOdometer: targetDueOdo,
-              remainingKm: remaining,
-              dueDate: serviceWithNextDue.service_date,
-              recommendedKm: targetDueOdo,
-            });
-          } else {
-            setNextServiceInfo({
-              isSet: false,
-              recommendedKm: currentOdo + 3000,
-            });
-          }
-        } else {
-          setNextServiceInfo({
-            isSet: false,
-            recommendedKm: currentOdo + 3000,
-          });
-        }
+      // 2. Next service info
+      if (data.next_service_due_odometer != null && Number(data.next_service_due_odometer) > 0) {
+        const dueOdo = Number(data.next_service_due_odometer);
+        setNextServiceInfo({
+          isSet: true,
+          dueOdometer: dueOdo,
+          remainingKm: dueOdo - currentOdo,
+          dueDate: data.last_service?.date || undefined,
+          recommendedKm: dueOdo,
+        });
       } else {
         setNextServiceInfo({
           isSet: false,
           recommendedKm: currentOdo + 3000,
         });
       }
-    } catch {}
 
-    // 3. Process Fuel Logs (Avg Mileage KM/L calculation & Fuel This Month)
-    let totalFuelThisMonth = 0;
-    try {
-      const parsedFuel = getParsedStorage<any>(FUEL_STORAGE_KEY, force);
-      if (parsedFuel.length > 0) {
-        let totalLitres = 0;
-        const odoReadings: number[] = [];
-
-        parsedFuel.forEach((f: any) => {
-          const litres = Number(f.quantity_litres || f.litres || 0);
-          const cost = Number(f.total_cost || f.cost || 0);
-          const odo = Number(f.odometer || 0);
-          const dateStr = f.fuel_date || f.created_at || '';
-
-          if (litres > 0) totalLitres += litres;
-          if (odo > 0) odoReadings.push(odo);
-          if (dateStr.startsWith(currentYearMonth)) {
-            totalFuelThisMonth += cost;
-          }
-        });
-
-        if (odoReadings.length >= 2 && totalLitres > 0) {
-          const minOdo = Math.min(...odoReadings);
-          const maxOdo = Math.max(...odoReadings);
-          const kmDriven = maxOdo - minOdo;
-
-          if (kmDriven > 0) {
-            const kmPerLitre = (kmDriven / totalLitres).toFixed(1);
-            setAvgMileage(`${kmPerLitre} KM/L`);
-          } else if (currentOdo > minOdo) {
-            const kmDriven = currentOdo - minOdo;
-            const kmPerLitre = (kmDriven / totalLitres).toFixed(1);
-            setAvgMileage(`${kmPerLitre} KM/L`);
-          } else {
-            setAvgMileage('N/A');
-          }
-        } else if (odoReadings.length === 1 && totalLitres > 0 && currentOdo > odoReadings[0]) {
-          const kmDriven = currentOdo - odoReadings[0];
-          const kmPerLitre = (kmDriven / totalLitres).toFixed(1);
-          setAvgMileage(`${kmPerLitre} KM/L`);
-        } else {
-          setAvgMileage('N/A');
-        }
+      // 3. Avg mileage
+      if (data.avg_mileage) {
+        setAvgMileage(data.avg_mileage);
+      } else {
+        setAvgMileage('N/A');
       }
-    } catch {}
 
-    // 4. Process Expenses (Total all time recorded)
-    let totalAllExpenses = 0;
-    try {
-      const parsedExp = getParsedStorage<any>(EXPENSES_STORAGE_KEY, force);
-      parsedExp.forEach((item: any) => {
-        const cost = Number(item.amount || 0);
-        if (!isNaN(cost)) totalAllExpenses += cost;
+      // 4. Financial totals
+      const totalExp = Number(data.total_expenses ?? data.this_month_totals?.total ?? 0);
+      const fuelThisMonth = Number(data.this_month_totals?.fuel ?? 0);
+      setFinancialStats({
+        totalExpenses: totalExp,
+        fuelThisMonth,
       });
-    } catch {}
 
-    setFinancialStats({
-      totalExpenses: totalAllExpenses,
-      fuelThisMonth: totalFuelThisMonth,
-    });
-  }, [refreshTrigger, activeVehicle?.odometer, activeVehicle?.insurance?.expiryDate, activeVehicle?.puc?.expiryDate]);
+      setAlerts(reminderAlerts);
+    };
 
-  const { isDark, theme } = useAppTheme();
+    const fallbackFromVehicle = () => {
+      const today = new Date();
+      const currentOdo = Number(activeVehicle?.current_odometer ?? activeVehicle?.odometer ?? 1500);
+
+      // Insurance fallback
+      if (activeVehicle?.insurance?.expiryDate) {
+        const exp = new Date(activeVehicle.insurance.expiryDate);
+        const diffDays = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 3600 * 24));
+        setInsuranceInfo({
+          isSet: true,
+          dueDate: activeVehicle.insurance.expiryDate,
+          daysLeft: diffDays,
+          provider: activeVehicle.insurance.provider || 'Comprehensive Cover',
+        });
+      }
+
+      // PUC fallback
+      if (activeVehicle?.puc?.expiryDate) {
+        const exp = new Date(activeVehicle.puc.expiryDate);
+        const diffDays = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 3600 * 24));
+        setPucInfo({
+          isSet: true,
+          dueDate: activeVehicle.puc.expiryDate,
+          daysLeft: diffDays,
+        });
+      }
+
+      setNextServiceInfo({
+        isSet: false,
+        recommendedKm: currentOdo + 3000,
+      });
+    };
+
+    fetchDashboardData();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [user?.id, activeVehicle?.id, refreshTrigger]);
+
+  const handleAlertScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const slide = Math.round(
+      event.nativeEvent.contentOffset.x / event.nativeEvent.layoutMeasurement.width
+    );
+    if (slide !== activeAlertIndex) {
+      setActiveAlertIndex(slide);
+    }
+  };
 
   return (
     <View style={styles.container}>
-      {/* 1. Alerts Section */}
-      <View style={styles.sectionHeader}>
-        <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>
-          Expiring Soon & Alerts ({docAlert.totalAlerts})
-        </Text>
-      </View>
-
-      <TouchableOpacity
-        style={[
-          styles.alertCard,
-          isDark && { backgroundColor: '#201A09', borderColor: '#78350F' },
-        ]}
-        onPress={onAlertPress}
-        activeOpacity={0.8}>
-        <View style={[styles.alertIconWrapper, isDark && { backgroundColor: '#2D230A' }]}>
-          <WarningIcon />
-        </View>
-        <View style={styles.alertContent}>
-          <View style={styles.alertTopRow}>
-            <Text style={[styles.alertTitle, isDark && { color: '#FBBF24' }]} numberOfLines={1}>{docAlert.title}</Text>
-            <View style={[styles.tag, isDark && { backgroundColor: '#451A03' }]}>
-              <Text style={[styles.tagText, isDark && { color: '#FDE68A' }]}>{docAlert.category}</Text>
-            </View>
+      {/* 1. Alerts Section (Carousel if multiple alerts) */}
+      {alerts.length > 0 && (
+        <Animated.View entering={FadeIn.duration(280)}>
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>
+              Expiring Soon & Alerts ({alerts.length})
+            </Text>
           </View>
-          <Text style={[styles.alertSubtext, isDark && { color: '#FDE68A' }]}>
-            Expires in <Text style={[styles.highlightText, isDark && { color: '#F59E0B' }]}>{docAlert.daysLeft > 0 ? `${docAlert.daysLeft} days` : 'Today'}</Text> • Due: {docAlert.dueDate}
-          </Text>
-        </View>
-      </TouchableOpacity>
 
-      {/* 2. Countdowns & Service Status Grid (2x2 Cards) */}
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onScroll={handleAlertScroll}
+            scrollEventThrottle={16}
+            style={styles.alertCarousel}>
+            {alerts.map((alert, idx) => (
+              <AnimatedPressableCard
+                key={alert.id || idx}
+                style={[
+                  styles.alertCard,
+                  isDark && { backgroundColor: '#201A09', borderColor: '#78350F' },
+                ]}
+                onPress={onAlertPress}
+                scaleTo={0.98}>
+                <View style={[styles.alertIconWrapper, isDark && { backgroundColor: '#2D230A' }]}>
+                  <WarningIcon />
+                </View>
+                <View style={styles.alertContent}>
+                  <View style={styles.alertTopRow}>
+                    <Text style={[styles.alertTitle, isDark && { color: '#FBBF24' }]} numberOfLines={1}>
+                      {alert.title}
+                    </Text>
+                    <View style={[styles.tag, isDark && { backgroundColor: '#451A03' }]}>
+                      <Text style={[styles.tagText, isDark && { color: '#FDE68A' }]}>{alert.category}</Text>
+                    </View>
+                  </View>
+                  <Text style={[styles.alertSubtext, isDark && { color: '#FDE68A' }]}>
+                    {alert.dueInfo ? (
+                      <Text style={[styles.highlightText, isDark && { color: '#F59E0B' }]}>
+                        {alert.dueInfo}
+                      </Text>
+                    ) : alert.dueDate ? (
+                      `Due: ${alert.dueDate}`
+                    ) : (
+                      'Action required soon'
+                    )}
+                  </Text>
+                </View>
+              </AnimatedPressableCard>
+            ))}
+          </ScrollView>
+
+          {/* Carousel Pagination Dots */}
+          {alerts.length > 1 && (
+            <View style={styles.paginationDots}>
+              {alerts.map((_, i) => (
+                <View
+                  key={i}
+                  style={[
+                    styles.dot,
+                    i === activeAlertIndex ? styles.dotActive : styles.dotInactive,
+                    i === activeAlertIndex && { backgroundColor: theme.primaryBlue },
+                  ]}
+                />
+              ))}
+            </View>
+          )}
+        </Animated.View>
+      )}
+
+      {/* 2. Countdowns & Service Status Grid (2x2 Cards with Spring Press Feedback) */}
       <View style={styles.sectionHeader}>
         <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Status & Next Due</Text>
       </View>
 
       <View style={styles.gridContainer}>
         {/* Next Service */}
-        <View
+        <AnimatedPressableCard
           style={[
             styles.gridCard,
             { backgroundColor: theme.card, borderColor: theme.border },
             nextServiceInfo.isSet && { borderColor: theme.primaryBlue, backgroundColor: theme.blueSoft },
-          ]}>
+          ]}
+          onPress={onNextServicePress}
+          scaleTo={0.96}>
           {nextServiceInfo.isSet && (
             <View
               style={[
@@ -397,25 +415,34 @@ export const StatusGrid: React.FC<StatusGridProps> = ({
             </View>
           )}
           <Text style={[styles.gridCardLabel, { color: theme.textMuted }]}>Next Service</Text>
-          <Text style={[styles.gridCardValue, { color: theme.textPrimary }, nextServiceInfo.isSet && { color: theme.primaryBlue }]}>
-            {nextServiceInfo.isSet && nextServiceInfo.dueOdometer != null
-              ? `${nextServiceInfo.dueOdometer.toLocaleString()} KM`
-              : 'Not Set'}
-          </Text>
+          <AnimatedCountText
+            style={[
+              styles.gridCardValue,
+              { color: theme.textPrimary },
+              nextServiceInfo.isSet && { color: theme.primaryBlue },
+            ]}
+            value={
+              nextServiceInfo.isSet && nextServiceInfo.dueOdometer != null
+                ? `${nextServiceInfo.dueOdometer.toLocaleString()} KM`
+                : 'Not Set'
+            }
+          />
           <Text style={[styles.gridCardSub, { color: theme.textFaint }]}>
             {nextServiceInfo.isSet
               ? `Due at ${nextServiceInfo.dueOdometer?.toLocaleString()} KM`
               : `Recommended: ${nextServiceInfo.recommendedKm.toLocaleString()} KM`}
           </Text>
-        </View>
+        </AnimatedPressableCard>
 
         {/* Insurance Expiry */}
-        <View
+        <AnimatedPressableCard
           style={[
             styles.gridCard,
             { backgroundColor: theme.card, borderColor: theme.border },
             insuranceInfo.isSet && { borderColor: theme.primaryBlue, backgroundColor: theme.blueSoft },
-          ]}>
+          ]}
+          onPress={onInsurancePress}
+          scaleTo={0.96}>
           {insuranceInfo.isSet && insuranceInfo.daysLeft != null && (
             <View
               style={[
@@ -434,21 +461,28 @@ export const StatusGrid: React.FC<StatusGridProps> = ({
             </View>
           )}
           <Text style={[styles.gridCardLabel, { color: theme.textMuted }]}>Insurance Expiry</Text>
-          <Text style={[styles.gridCardValue, { color: theme.textPrimary }, insuranceInfo.isSet && { color: theme.primaryBlue }]}>
-            {insuranceInfo.isSet && insuranceInfo.dueDate ? insuranceInfo.dueDate : 'Not Set'}
-          </Text>
-          <Text style={[styles.gridCardSub, { color: theme.textFaint }]}>
+          <AnimatedCountText
+            style={[
+              styles.gridCardValue,
+              { color: theme.textPrimary },
+              insuranceInfo.isSet && { color: theme.primaryBlue },
+            ]}
+            value={insuranceInfo.isSet && insuranceInfo.dueDate ? insuranceInfo.dueDate : 'Not Set'}
+          />
+          <Text style={[styles.gridCardSub, { color: theme.textFaint }]} numberOfLines={1}>
             {insuranceInfo.provider || 'Comprehensive Cover'}
           </Text>
-        </View>
+        </AnimatedPressableCard>
 
         {/* PUC Expiry */}
-        <View
+        <AnimatedPressableCard
           style={[
             styles.gridCard,
             { backgroundColor: theme.card, borderColor: theme.border },
             pucInfo.isSet && { borderColor: theme.primaryBlue, backgroundColor: theme.blueSoft },
-          ]}>
+          ]}
+          onPress={onPucPress}
+          scaleTo={0.96}>
           {pucInfo.isSet && pucInfo.daysLeft != null && (
             <View
               style={[
@@ -467,30 +501,42 @@ export const StatusGrid: React.FC<StatusGridProps> = ({
             </View>
           )}
           <Text style={[styles.gridCardLabel, { color: theme.textMuted }]}>PUC Expiry</Text>
-          <Text style={[styles.gridCardValue, { color: theme.textPrimary }, pucInfo.isSet && { color: theme.primaryBlue }]}>
-            {pucInfo.isSet && pucInfo.dueDate ? pucInfo.dueDate : 'Not Set'}
-          </Text>
+          <AnimatedCountText
+            style={[
+              styles.gridCardValue,
+              { color: theme.textPrimary },
+              pucInfo.isSet && { color: theme.primaryBlue },
+            ]}
+            value={pucInfo.isSet && pucInfo.dueDate ? pucInfo.dueDate : 'Not Set'}
+          />
           <Text style={[styles.gridCardSub, { color: theme.textFaint }]}>Pollution under control</Text>
-        </View>
+        </AnimatedPressableCard>
 
         {/* Avg Mileage */}
-        <View
+        <AnimatedPressableCard
           style={[
             styles.gridCard,
             { backgroundColor: theme.card, borderColor: theme.border },
             avgMileage !== 'N/A' && { borderColor: theme.primaryBlue, backgroundColor: theme.blueSoft },
-          ]}>
+          ]}
+          onPress={onAnalyticsPress}
+          scaleTo={0.96}>
           {avgMileage !== 'N/A' && (
             <View style={[styles.statusBadge, styles.statusBadgeSuccess]}>
               <Text style={[styles.statusBadgeText, styles.statusBadgeTextSuccess]}>Live Economy</Text>
             </View>
           )}
           <Text style={[styles.gridCardLabel, { color: theme.textMuted }]}>Avg Mileage</Text>
-          <Text style={[styles.gridCardValue, { color: theme.textPrimary }, avgMileage !== 'N/A' && { color: theme.primaryBlue }]}>
-            {avgMileage}
-          </Text>
+          <AnimatedCountText
+            style={[
+              styles.gridCardValue,
+              { color: theme.textPrimary },
+              avgMileage !== 'N/A' && { color: theme.primaryBlue },
+            ]}
+            value={avgMileage}
+          />
           <Text style={[styles.gridCardSub, { color: theme.textFaint }]}>KM / Litre</Text>
-        </View>
+        </AnimatedPressableCard>
       </View>
 
       {/* 3. Financial Summary Section */}
@@ -499,23 +545,33 @@ export const StatusGrid: React.FC<StatusGridProps> = ({
       </View>
 
       <View style={styles.financialRow}>
-        <View style={[styles.financeCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <AnimatedPressableCard
+          style={[styles.financeCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+          onPress={onAnalyticsPress}
+          scaleTo={0.97}>
           <Text style={[styles.financeLabel, { color: theme.textMuted }]}>Total Expenses Logged</Text>
-          <Text style={[styles.financeAmount, { color: theme.textPrimary }]}>
-            ₹{financialStats.totalExpenses.toLocaleString('en-IN')}
-          </Text>
+          <AnimatedCountText
+            style={[styles.financeAmount, { color: theme.textPrimary }]}
+            value={financialStats.totalExpenses}
+            prefix="₹"
+          />
           <Text style={[styles.financeSub, { color: theme.textFaint }]}>All time recorded</Text>
-        </View>
+        </AnimatedPressableCard>
 
-        <View style={[styles.financeCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <AnimatedPressableCard
+          style={[styles.financeCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+          onPress={onAnalyticsPress}
+          scaleTo={0.97}>
           <Text style={[styles.financeLabel, { color: theme.textMuted }]}>Fuel This Month</Text>
-          <Text style={[styles.financeAmount, { color: theme.textPrimary }]}>
-            ₹{financialStats.fuelThisMonth.toLocaleString('en-IN')}
-          </Text>
+          <AnimatedCountText
+            style={[styles.financeAmount, { color: theme.textPrimary }]}
+            value={financialStats.fuelThisMonth}
+            prefix="₹"
+          />
           <Text style={[styles.financeSub, { color: theme.textFaint }]}>
             {new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' })}
           </Text>
-        </View>
+        </AnimatedPressableCard>
       </View>
 
       {/* Link to Detailed Analytics */}
@@ -530,6 +586,8 @@ export const StatusGrid: React.FC<StatusGridProps> = ({
     </View>
   );
 };
+
+const windowWidth = Dimensions.get('window').width;
 
 const styles = StyleSheet.create({
   container: {
@@ -547,8 +605,12 @@ const styles = StyleSheet.create({
     letterSpacing: -0.1,
   },
 
-  /* Alert Card */
+  /* Alert Card & Carousel */
+  alertCarousel: {
+    marginBottom: 10,
+  },
   alertCard: {
+    width: windowWidth - 32,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFBEB',
@@ -556,7 +618,6 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: '#FDE68A',
     padding: 14,
-    marginBottom: 16,
     shadowColor: '#F59E0B',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -605,6 +666,25 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#D97706',
   },
+  paginationDots: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 14,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  dotActive: {
+    width: 16,
+    backgroundColor: '#2563EB',
+  },
+  dotInactive: {
+    backgroundColor: '#CBD5E1',
+  },
 
   /* 2x2 Grid */
   gridContainer: {
@@ -626,10 +706,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.03,
     shadowRadius: 4,
     elevation: 1,
-  },
-  gridCardActive: {
-    borderColor: '#93C5FD',
-    backgroundColor: '#F0F7FF',
   },
   statusBadge: {
     alignSelf: 'flex-start',
@@ -679,9 +755,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#0F172A',
     marginBottom: 2,
-  },
-  activeValueText: {
-    color: '#1D4ED8',
   },
   gridCardSub: {
     fontSize: 11,

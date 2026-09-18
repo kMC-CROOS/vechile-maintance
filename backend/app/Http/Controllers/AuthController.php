@@ -3,21 +3,26 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Support\E164Phone;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
-use Illuminate\Validation\ValidationException;
+use Illuminate\Validation\Rule;
 
 class AuthController extends Controller
 {
     public function register(Request $request)
     {
+        $request->merge([
+            'phone' => E164Phone::normalize($request->input('phone')),
+        ]);
+
         $validated = $request->validate([
             'name' => 'required|string|min:2|max:255',
             'email' => 'required|string|email|max:255|unique:users',
-            'phone' => 'nullable|string|max:20',
+            'phone' => ['nullable', 'string', 'regex:'.E164Phone::PATTERN, 'unique:users,phone'],
             'password' => 'required|string|min:8|confirmed',
         ], [
             'name.required' => 'Please enter your full name',
@@ -25,6 +30,8 @@ class AuthController extends Controller
             'email.required' => 'Please enter a valid email address',
             'email.email' => 'Please enter a valid email address',
             'email.unique' => 'This email address is already registered. Please sign in instead.',
+            'phone.regex' => 'Please enter a valid international phone number',
+            'phone.unique' => 'This phone number is already registered.',
             'password.required' => 'Password is required',
             'password.min' => 'Password must contain at least 8 characters',
             'password.confirmed' => 'Passwords do not match',
@@ -34,7 +41,7 @@ class AuthController extends Controller
             'name' => $validated['name'],
             'email' => $validated['email'],
             'phone' => $validated['phone'] ?? null,
-            'password' => Hash::make($validated['password']),
+            'password' => $validated['password'],
         ]);
 
         $token = $user->createToken('auth_token')->plainTextToken;
@@ -46,6 +53,7 @@ class AuthController extends Controller
                 'email' => $user->email,
                 'phone' => $user->phone,
                 'created_at' => $user->created_at,
+                'vehicles_count' => 0,
             ],
             'token' => $token,
         ], 201);
@@ -82,6 +90,7 @@ class AuthController extends Controller
                 'email' => $user->email,
                 'phone' => $user->phone,
                 'created_at' => $user->created_at,
+                'vehicles_count' => $user->vehicles()->count(),
             ],
             'token' => $token,
         ]);
@@ -195,7 +204,9 @@ class AuthController extends Controller
         $token = $user->createToken('auth_token')->plainTextToken;
 
         return response()->json([
-            'user' => $user->fresh(),
+            'user' => array_merge($user->fresh()->toArray(), [
+                'vehicles_count' => $user->vehicles()->count(),
+            ]),
             'token' => $token,
         ]);
     }
@@ -249,18 +260,32 @@ class AuthController extends Controller
                 'email' => $user->email,
                 'phone' => $user->phone,
                 'created_at' => $user->created_at,
+                'vehicles_count' => $user->vehicles()->count(),
             ],
         ]);
     }
 
     public function updateProfile(Request $request)
     {
-        $validated = $request->validate([
-            'name' => 'required|string|min:2|max:255',
-            'phone' => 'nullable|string|max:20',
+        $request->merge([
+            'phone' => E164Phone::normalize($request->input('phone')),
         ]);
 
         $user = $request->user();
+
+        $validated = $request->validate([
+            'name' => 'required|string|min:2|max:255',
+            'phone' => [
+                'nullable',
+                'string',
+                'regex:'.E164Phone::PATTERN,
+                Rule::unique('users', 'phone')->ignore($user->id),
+            ],
+        ], [
+            'phone.regex' => 'Please enter a valid international phone number',
+            'phone.unique' => 'This phone number is already registered.',
+        ]);
+
         $user->name = $validated['name'];
         if (array_key_exists('phone', $validated)) {
             $user->phone = $validated['phone'];
@@ -275,6 +300,7 @@ class AuthController extends Controller
                 'email' => $user->email,
                 'phone' => $user->phone,
                 'created_at' => $user->created_at,
+                'vehicles_count' => $user->vehicles()->count(),
             ],
         ]);
     }

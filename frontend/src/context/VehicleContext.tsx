@@ -30,13 +30,13 @@ interface VehicleContextType {
 const VehicleContext = createContext<VehicleContextType | undefined>(undefined);
 
 export const VehicleProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [activeVehicle, setActiveVehicle] = useState<Vehicle | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const reloadVehicles = async (selectId?: number): Promise<Vehicle[]> => {
-    if (!isAuthenticated) {
+    if (!isAuthenticated || !user) {
       setVehicles([]);
       setActiveVehicle(null);
       setIsLoading(false);
@@ -46,23 +46,25 @@ export const VehicleProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setIsLoading(true);
     try {
       const data = await apiFetch<Vehicle[]>('/vehicles');
-      setVehicles(data);
+      // Ensure only vehicles belonging to current user are kept
+      const userVehicles = Array.isArray(data) ? data.filter((v) => !v.user_id || v.user_id === user.id) : [];
+      setVehicles(userVehicles);
 
-      if (data.length > 0) {
+      if (userVehicles.length > 0) {
         if (selectId) {
-          const found = data.find((v) => v.id === selectId);
-          setActiveVehicle(found || data[0]);
-        } else if (!activeVehicle || !data.some((v) => v.id === activeVehicle.id)) {
-          setActiveVehicle(data[0]);
+          const found = userVehicles.find((v) => v.id === selectId);
+          setActiveVehicle(found || userVehicles[0]);
+        } else if (!activeVehicle || activeVehicle.user_id !== user.id || !userVehicles.some((v) => v.id === activeVehicle.id)) {
+          setActiveVehicle(userVehicles[0]);
         } else {
           // Update existing active vehicle object reference
-          const updated = data.find((v) => v.id === activeVehicle.id);
-          if (updated) setActiveVehicle(updated);
+          const updated = userVehicles.find((v) => v.id === activeVehicle.id);
+          setActiveVehicle(updated || userVehicles[0]);
         }
       } else {
         setActiveVehicle(null);
       }
-      return data;
+      return userVehicles;
     } catch {
       setVehicles([]);
       setActiveVehicle(null);
@@ -72,9 +74,12 @@ export const VehicleProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  // Reset and reload vehicles whenever the authenticated user ID changes
   useEffect(() => {
     if (authLoading) return;
-    if (isAuthenticated) {
+    if (isAuthenticated && user?.id) {
+      setVehicles([]);
+      setActiveVehicle(null);
       setIsLoading(true);
       reloadVehicles();
     } else {
@@ -82,7 +87,7 @@ export const VehicleProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setActiveVehicle(null);
       setIsLoading(false);
     }
-  }, [isAuthenticated, authLoading]);
+  }, [isAuthenticated, authLoading, user?.id]);
 
   return (
     <VehicleContext.Provider

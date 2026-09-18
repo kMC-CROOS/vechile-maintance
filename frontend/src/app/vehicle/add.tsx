@@ -16,6 +16,9 @@ import {
 import { useNavigation, useRouter } from 'expo-router';
 import Svg, { Path, Rect } from 'react-native-svg';
 import { VehicleCategoryCardsAnimated } from '@/components/ui/VehicleCategoryCardsAnimated';
+import { useVehicle, Vehicle } from '@/context/VehicleContext';
+import { useAuth } from '@/context/AuthContext';
+import { apiFetch } from '@/services/api';
 
 // Available vehicle types
 const VEHICLE_TYPES = ['Car', 'Bike', 'Scooter', 'Truck'] as const;
@@ -58,6 +61,8 @@ const ChevronRightIcon = () => (
 export default function AddVehicleScreen() {
   const router = useRouter();
   const navigation = useNavigation<any>();
+  const { vehicles, reloadVehicles } = useVehicle();
+  const { logout } = useAuth();
 
   // Form States
   const [vehicleType, setVehicleType] = useState<VehicleType>('Car');
@@ -65,6 +70,7 @@ export default function AddVehicleScreen() {
   const [brand, setBrand] = useState('');
   const [model, setModel] = useState('');
   const [registrationNumber, setRegistrationNumber] = useState('');
+  const [odometer, setOdometer] = useState('');
   const [fuelType, setFuelType] = useState<FuelType>('Petrol');
 
   // Expiry & Notification States
@@ -157,10 +163,11 @@ export default function AddVehicleScreen() {
   /**
    * Save Vehicle Handler:
    * 1. Validates required fields
-   * 2. Packages newly created vehicle data
-   * 3. Immediately navigates to the Dashboard screen passing the vehicle state
+   * 2. Persists newly created vehicle to backend API
+   * 3. Reloads vehicles in VehicleContext
+   * 4. Immediately routes to the Dashboard screen via router.replace()
    */
-  const handleSave = (e?: any) => {
+  const handleSave = async (e?: any) => {
     e?.preventDefault?.();
     e?.stopPropagation?.();
     // 1. Validation
@@ -179,69 +186,30 @@ export default function AddVehicleScreen() {
 
     setLoading(true);
 
-    // 2. Build newly saved vehicle object
-    const newVehicle = {
-      id: Date.now().toString(),
-      name: nickname.trim() || model.trim(),
-      type: vehicleType,
-      vehicleType,
-      brand: brand.trim(),
-      model: `${brand.trim()} ${model.trim()}`,
-      regNumber: registrationNumber.trim().toUpperCase(),
-      registrationNumber: registrationNumber.trim().toUpperCase(),
-      odometer: 1500,
-      current_odometer: 1500,
-      fuelType,
-      insurance: {
-        expiryDate: insuranceExpiryDate.trim() || undefined,
-        notification: insuranceNotification,
-        alarm: insuranceAlarm,
-      },
-      puc: {
-        expiryDate: pucExpiryDate.trim() || undefined,
-        notification: pucNotification,
-        alarm: pucAlarm,
-      },
-      notes: notes.trim() || undefined,
-    };
-
-    console.log('Saved vehicle, navigating to Dashboard:', newVehicle);
-
-    // 3. Immediate navigation to Dashboard screen
     try {
-      // If stack navigation reset is available, reset stack to Dashboard so back button won't return to Add Vehicle
-      if (navigation.reset) {
-        navigation.reset({
-          index: 0,
-          routes: [
-            {
-              name: '(tabs)',
-              params: {
-                screen: 'index',
-                params: { newVehicle: JSON.stringify(newVehicle) },
-              },
-            },
-          ],
-        });
-      } else if (navigation.navigate) {
-        navigation.navigate('Dashboard', { newVehicle });
-      } else if (router.canGoBack()) {
-        router.back();
-      } else {
-        router.replace({
-          pathname: '/(tabs)',
-          params: { newVehicle: JSON.stringify(newVehicle) },
-        });
-      }
-    } catch (err) {
-      if (router.canGoBack()) {
-        router.back();
-      } else {
-        router.replace({
-          pathname: '/(tabs)',
-          params: { newVehicle: JSON.stringify(newVehicle) },
-        });
-      }
+      const odoNum = parseFloat(odometer.replace(/[^0-9.]/g, '')) || 0;
+      const created = await apiFetch<Vehicle>('/vehicles', {
+        method: 'POST',
+        body: {
+          type: vehicleType,
+          brand: brand.trim(),
+          model: model.trim(),
+          registration_number: registrationNumber.trim().toUpperCase(),
+          fuel_type: fuelType,
+          transmission: 'Manual',
+          current_odometer: odoNum,
+          notes: notes.trim() || undefined,
+          insurance_expiry_date: insuranceExpiryDate.trim() || undefined,
+        },
+      });
+
+      // Reload vehicles and select the newly created vehicle
+      await reloadVehicles(created?.id);
+
+      // Route to Home Dashboard for the newly created vehicle
+      router.replace('/(tabs)' as any);
+    } catch (err: any) {
+      Alert.alert('Save Failed', err.message || 'Unable to save vehicle. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -255,14 +223,25 @@ export default function AddVehicleScreen() {
         
         {/* 1. Header Navigation Bar */}
         <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            activeOpacity={0.7}
-            onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)' as any))}
-            accessibilityLabel="Go back"
-            accessibilityRole="button">
-            <BackIcon />
-          </TouchableOpacity>
+          {vehicles.length > 0 ? (
+            <TouchableOpacity
+              style={styles.backButton}
+              activeOpacity={0.7}
+              onPress={() => router.back()}
+              accessibilityLabel="Go back"
+              accessibilityRole="button">
+              <BackIcon />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={styles.logoutButton}
+              activeOpacity={0.7}
+              onPress={logout}
+              accessibilityLabel="Sign out"
+              accessibilityRole="button">
+              <Text style={styles.logoutButtonText}>Sign Out</Text>
+            </TouchableOpacity>
+          )}
           <Text style={styles.headerTitle}>Add Vehicle</Text>
           <View style={styles.headerRightPlaceholder} />
         </View>
@@ -335,7 +314,7 @@ export default function AddVehicleScreen() {
             </View>
 
             {/* Registration Number */}
-            <View style={styles.inputGroupLast}>
+            <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>
                 Registration Number <Text style={styles.requiredStar}>*</Text>
               </Text>
@@ -348,6 +327,21 @@ export default function AddVehicleScreen() {
                 onFocus={() => setFocusedField('regNo')}
                 onBlur={() => setFocusedField(null)}
                 autoCapitalize="characters"
+              />
+            </View>
+
+            {/* Current Odometer */}
+            <View style={styles.inputGroupLast}>
+              <Text style={styles.inputLabel}>Current Odometer (km)</Text>
+              <TextInput
+                style={[styles.input, focusedField === 'odometer' && styles.inputFocused]}
+                placeholder="e.g. 1500"
+                placeholderTextColor="#94A3B8"
+                value={odometer}
+                onChangeText={setOdometer}
+                onFocus={() => setFocusedField('odometer')}
+                onBlur={() => setFocusedField(null)}
+                keyboardType="numeric"
               />
             </View>
           </View>
@@ -665,6 +659,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#F1F5F9',
+  },
+  logoutButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#F1F5F9',
+  },
+  logoutButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748B',
   },
   headerTitle: {
     fontSize: 18,

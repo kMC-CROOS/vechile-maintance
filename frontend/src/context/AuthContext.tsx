@@ -9,6 +9,8 @@ import {
 } from '@/services/authService';
 import { getAuthToken, removeAuthToken, setAuthToken } from '@/services/storage';
 
+import { dataCache } from '@/services/dataCache';
+
 interface AuthContextType {
   user: UserProfile | null;
   token: string | null;
@@ -22,6 +24,22 @@ interface AuthContextType {
   logout: () => Promise<void>;
   reloadUser: () => Promise<void>;
 }
+
+const clearSessionData = () => {
+  dataCache.clear();
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      const keysToRemove = [
+        'vehiclecare_documents_records',
+        'vehiclecare_service_records_list',
+        'vehiclecare_fuel_logs_list',
+        'vehiclecare_expenses_list',
+        'vehiclecare_alert_preferences',
+      ];
+      keysToRemove.forEach((k) => window.localStorage.removeItem(k));
+    } catch {}
+  }
+};
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -38,10 +56,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const data = await authService.getMe();
         setUser(data.user);
       } else {
+        clearSessionData();
         setUser(null);
         setToken(null);
       }
     } catch {
+      clearSessionData();
       setUser(null);
       setToken(null);
       await removeAuthToken();
@@ -52,6 +72,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     setOnUnauthorizedHandler(() => {
+      clearSessionData();
       setUser(null);
       setToken(null);
       router.replace('/(auth)/login' as any);
@@ -60,6 +81,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const login = async (email: string, password: string) => {
+    clearSessionData();
     const res = await authService.login(email, password);
     await setAuthToken(res.token);
     setToken(res.token);
@@ -67,6 +89,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const register = async (data: RegisterPayload) => {
+    clearSessionData();
     const res = await authService.register(data);
     await setAuthToken(res.token);
     setToken(res.token);
@@ -74,6 +97,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const googleLogin = useCallback(async (data: string | GoogleAuthPayload) => {
+    clearSessionData();
     const payload: GoogleAuthPayload = typeof data === 'string' ? { id_token: data } : data;
     const res = await authService.googleAuth(payload);
     await setAuthToken(res.token);
@@ -92,7 +116,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
-    await authService.logout();
+    try {
+      await authService.logout();
+    } catch {}
+    clearSessionData();
     await removeAuthToken();
     setToken(null);
     setUser(null);

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\PhonePasswordResetController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ExpenseController;
 use App\Http\Controllers\FuelController;
@@ -19,6 +20,12 @@ Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/google-auth', [AuthController::class, 'googleAuth']);
 Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+Route::post('/forgot-password/phone/request', [PhonePasswordResetController::class, 'requestOtp'])
+    ->middleware('throttle:otp-request');
+Route::post('/forgot-password/phone/verify', [PhonePasswordResetController::class, 'verifyOtp'])
+    ->middleware('throttle:otp-verify');
+Route::post('/forgot-password/phone/reset', [PhonePasswordResetController::class, 'reset'])
+    ->middleware('throttle:5,1');
 
 // Test route
 Route::get('/test', function () {

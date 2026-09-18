@@ -73,6 +73,28 @@ class DashboardController extends Controller
                 ];
             });
 
+        // 5. Total all-time expenses & avg mileage
+        $totalAllExpenses = (float) Expense::where('vehicle_id', $vehicle->id)->sum('amount');
+
+        $fuelEntries = $vehicle->fuelEntries()->orderBy('odometer', 'asc')->get();
+        $avgMileage = null;
+        if ($fuelEntries->count() >= 2) {
+            $totalLitres = (float) $fuelEntries->sum('quantity_litres');
+            $minOdo = (float) $fuelEntries->min('odometer');
+            $maxOdo = (float) $fuelEntries->max('odometer');
+            $kmDriven = $maxOdo - $minOdo;
+            if ($totalLitres > 0 && $kmDriven > 0) {
+                $avgMileage = number_format($kmDriven / $totalLitres, 1) . ' KM/L';
+            }
+        } elseif ($fuelEntries->count() === 1 && (float) $vehicle->current_odometer > (float) $fuelEntries->first()->odometer) {
+            $entry = $fuelEntries->first();
+            $totalLitres = (float) $entry->quantity_litres;
+            $kmDriven = (float) $vehicle->current_odometer - (float) $entry->odometer;
+            if ($totalLitres > 0 && $kmDriven > 0) {
+                $avgMileage = number_format($kmDriven / $totalLitres, 1) . ' KM/L';
+            }
+        }
+
         return response()->json([
             'vehicle' => $vehicle,
             'odometer' => (float) $vehicle->current_odometer,
@@ -83,10 +105,16 @@ class DashboardController extends Controller
                 'other' => $otherTotal,
                 'total' => $grandTotal,
             ],
+            'total_expenses' => $totalAllExpenses,
+            'avg_mileage' => $avgMileage,
             'top_reminders' => $topReminders,
             'last_service' => $lastService,
             'next_service_due_odometer' => $nextServiceDue,
             'recent_activity' => $recentExpenses,
+        ])->withHeaders([
+            'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+            'Pragma' => 'no-cache',
+            'Expires' => '0',
         ]);
     }
 }

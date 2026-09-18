@@ -5,23 +5,29 @@ import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { VehicleProvider } from '@/context/VehicleContext';
 import { ThemeProvider, useAppTheme } from '@/context/ThemeContext';
 
+import { useVehicle } from '@/context/VehicleContext';
+import { navigatePostAuth } from '@/utils/postAuthNavigation';
+
 function RootNavigation() {
   const { isDark, theme } = useAppTheme();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, user } = useAuth();
+  const { vehicles, isLoading: vehiclesLoading } = useVehicle();
   const segments = useSegments();
   const router = useRouter();
 
   // Segment-based auth guard: only checks boundary transitions, never routine pushes
   useEffect(() => {
-    if (isLoading) return;
+    if (authLoading) return;
     const inAuthGroup = segments[0] === '(auth)';
 
     if (!isAuthenticated && !inAuthGroup) {
       router.replace('/(auth)/login' as any);
     } else if (isAuthenticated && inAuthGroup) {
-      router.replace('/(tabs)' as any);
+      if (vehiclesLoading && typeof user?.vehicles_count !== 'number') return;
+      const count = typeof user?.vehicles_count === 'number' ? user.vehicles_count : vehicles.length;
+      navigatePostAuth(count);
     }
-  }, [isAuthenticated, isLoading, segments]);
+  }, [isAuthenticated, authLoading, vehiclesLoading, vehicles.length, user?.vehicles_count, segments]);
 
   const screenOptions = useMemo(
     () => ({
@@ -40,6 +46,7 @@ function RootNavigation() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="(auth)/login" />
         <Stack.Screen name="(auth)/register" />
+        <Stack.Screen name="(auth)/forgot-password" />
         <Stack.Screen name="settings/index" />
         <Stack.Screen name="settings/vehicles" />
         <Stack.Screen name="vehicle/add" />
