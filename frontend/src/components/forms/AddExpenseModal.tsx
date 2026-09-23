@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { validateServiceEntry, validNonNegativeNumber, validDocumentDate } from '@/utils/dashboardValidation';
+import React, { useState, useRef } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -56,19 +57,18 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
   const [paymentMethod, setPaymentMethod] = useState<string>('UPI');
   const [category, setCategory] = useState<string>('Fuel');
   const [loading, setLoading] = useState(false);
+  const saving = useRef(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const handleSave = async (e?: any) => {
     e?.preventDefault?.();
     e?.stopPropagation?.();
-    if (!amount.trim() || isNaN(Number(amount)) || Number(amount) <= 0) {
-      Alert.alert('Invalid Amount', 'Please enter a valid expense amount');
-      return;
-    }
-    if (!description.trim()) {
-      Alert.alert('Required', 'Please enter a description for the expense');
-      return;
-    }
-
+    if (saving.current) return;
+    setSaveError(null);
+    if (!validNonNegativeNumber(amount) || Number(amount) <= 0) { setSaveError('Enter an amount greater than zero.'); return; }
+    if (!validDocumentDate(expenseDate) || expenseDate > today) { setSaveError('Choose a valid expense date that is not in the future.'); return; }
+    if (!description.trim() || description.trim().length > 190) { setSaveError('Enter a description of 1 to 190 characters.'); return; }
+    saving.current = true;
     setLoading(true);
     const expenseData = {
       expenseDate,
@@ -79,14 +79,16 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     };
 
     try {
+      if (!onSave) throw new Error('Saving is unavailable. Please reopen this form.');
       if (onSave) {
         await onSave(expenseData);
       }
       Alert.alert('Success', 'Expense logged successfully!');
       onClose();
     } catch (err: any) {
-      Alert.alert('Error', err?.message || 'Failed to save expense');
+      setSaveError(err?.message || 'Failed to save expense');
     } finally {
+      saving.current = false;
       setLoading(false);
     }
   };
@@ -112,6 +114,7 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             style={styles.scroll}
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled">
+            {saveError ? <Text accessibilityRole="alert" style={{ color: '#B91C1C', marginBottom: 12 }}>{saveError}</Text> : null}
             {/* Amount & Date */}
             <View style={styles.row}>
               <View style={[styles.inputGroup, { flex: 1.2, marginRight: 8 }]}>

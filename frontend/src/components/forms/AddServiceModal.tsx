@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { validateServiceEntry, validNonNegativeNumber, validDocumentDate } from '@/utils/dashboardValidation';
+import React, { useState, useRef } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -62,6 +63,8 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
   const [selectedServices, setSelectedServices] = useState<string[]>(['Engine Oil', 'General Service']);
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
+  const saving = useRef(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const toggleService = (type: string) => {
     if (selectedServices.includes(type)) {
@@ -74,15 +77,12 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
   const handleSave = async (e?: any) => {
     e?.preventDefault?.();
     e?.stopPropagation?.();
-    if (!odometer.trim()) {
-      Alert.alert('Required', 'Please enter the service odometer reading');
-      return;
-    }
-    if (!cost.trim()) {
-      Alert.alert('Required', 'Please enter the total service cost');
-      return;
-    }
-
+    if (saving.current) return;
+    setSaveError(null);
+    const validation = validateServiceEntry(serviceDate, odometer, cost, nextDueOdometer);
+    if (validation) { setSaveError(validation); return; }
+    if (!selectedServices.length) { setSaveError('Choose at least one service.'); return; }
+    saving.current = true;
     setLoading(true);
     const record = {
       serviceDate,
@@ -97,14 +97,16 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
     };
 
     try {
+      if (!onSave) throw new Error('Saving is unavailable. Please reopen this form.');
       if (onSave) {
         await onSave(record);
       }
       Alert.alert('Success', 'Service record logged successfully!');
       onClose();
     } catch (err: any) {
-      Alert.alert('Error', err?.message || 'Failed to save service record');
+      setSaveError(err?.message || 'Failed to save service record');
     } finally {
+      saving.current = false;
       setLoading(false);
     }
   };
@@ -130,6 +132,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
             style={styles.scroll}
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled">
+            {saveError ? <Text accessibilityRole="alert" style={{ color: '#B91C1C', marginBottom: 12 }}>{saveError}</Text> : null}
             {/* Service Date & Odometer Row */}
             <View style={styles.row}>
               <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>

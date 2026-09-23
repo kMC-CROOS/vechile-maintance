@@ -7,6 +7,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ExpenseController;
 use App\Http\Controllers\FuelController;
 use App\Http\Controllers\InsuranceController;
+use App\Http\Controllers\OcrController;
 use App\Http\Controllers\ReminderController;
 use App\Http\Controllers\ReplacementController;
 use App\Http\Controllers\ServiceController;
@@ -40,6 +41,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me', [AuthController::class, 'me']);
     Route::put('/me', [AuthController::class, 'updateProfile']);
+
+    // OCR Extraction
+    Route::post('/ocr/extract', [OcrController::class, 'extract']);
 
     // Vehicle CRUD
     Route::get('/vehicles', [VehicleController::class, 'index']);

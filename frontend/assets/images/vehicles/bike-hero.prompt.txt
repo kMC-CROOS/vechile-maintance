@@ -1,0 +1,3 @@
+Generated with built-in image_gen, using bike.png as the edit target.
+
+Edit target: provided motorcycle asset. Produce a crisp high-resolution photorealistic cutout of the same black and silver naked street motorcycle, same front-right three-quarter view, whole motorcycle wheels mirrors visible. Remove all rectangular dark background, frame and floor; genuinely transparent alpha background, not checkerboard. Preserve motorcycle styling and orientation. Tight but uncropped bounds with small margin. No text, no added logos. For use as a vehicle dashboard decorative asset.

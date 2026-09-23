@@ -2,16 +2,16 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Modal,
-  Platform,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, { FadeIn, FadeInDown, FadeInUp, ZoomIn } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
@@ -24,15 +24,23 @@ import { AnimatedPressableCard } from '@/components/ui/AnimatedPressableCard';
 import { AddServiceModal } from '@/components/forms/AddServiceModal';
 import { AddExpenseModal } from '@/components/forms/AddExpenseModal';
 import { AddDocumentModal } from '@/components/forms/AddDocumentModal';
+import { DashboardIcon } from '@/components/dashboard/DashboardIcon';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
 import { useVehicle } from '@/context/VehicleContext';
 import { apiFetch } from '@/services/api';
 import { dataCache } from '@/services/dataCache';
 
+const SCREEN_PADDING = 16;
+
+const validNonNegativeNumber = (val: string | number) => {
+  const num = Number(val);
+  return !isNaN(num) && num >= 0;
+};
+
 // Settings Gear SVG Icon
-const SettingsIcon = ({ color = '#334155' }: { color?: string }) => (
-  <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+const SettingsIcon = ({ color = '#101828' }: { color?: string }) => (
+  <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
     <Path
       d="M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z"
       stroke={color}
@@ -51,32 +59,54 @@ const SettingsIcon = ({ color = '#334155' }: { color?: string }) => (
 );
 
 // Chevron Down Icon
-const ChevronDownIcon = () => (
+const ChevronDownIcon = ({ color = '#1769FF' }: { color?: string }) => (
   <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
-    <Path d="M6 9L12 15L18 9" stroke="#2563EB" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    <Path d="M6 9L12 15L18 9" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+  </Svg>
+);
+
+// Trash Can Delete Icon
+const TrashIcon = ({ color = '#EF4444' }: { color?: string }) => (
+  <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+    <Path
+      d="M3 6H5H21"
+      stroke={color}
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <Path
+      d="M8 6V4C8 3.46957 8.21071 2.96086 8.58579 2.58579C8.96086 2.21071 9.46957 2 10 2H14C14.5304 2 15.0391 2.21071 15.4142 2.58579C15.7893 2.96086 16 3.46957 16 4V6M19 6V20C19 20.5304 18.7893 21.0391 18.4142 21.4142C18.0391 21.7893 17.5304 22 17 22H7C6.46957 22 5.96086 21.7893 5.58579 21.4142C5.21071 20.0391 5 20.5304 5 20V6H19Z"
+      stroke={color}
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
   </Svg>
 );
 
 export default function DashboardScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ newVehicle?: string }>();
+  const { width } = useWindowDimensions();
   const { user } = useAuth();
   const {
     vehicles,
     activeVehicle: contextVehicle,
     setActiveVehicle: setContextVehicle,
     reloadVehicles,
+    deleteVehicle,
     isLoading,
   } = useVehicle();
 
-  // If user has zero vehicles, route directly to Add Vehicle
+  const tabBarHeight = width >= 600 ? 80 : 64;
+
   useEffect(() => {
     if (!isLoading && vehicles.length === 0) {
       router.replace('/vehicle/add' as any);
     }
   }, [isLoading, vehicles.length]);
 
-  // Unified display vehicle strictly scoped to authenticated user context
   const displayVehicle = useMemo(() => {
     if (contextVehicle && (!contextVehicle.user_id || contextVehicle.user_id === user?.id)) {
       return {
@@ -87,6 +117,8 @@ export default function DashboardScreen() {
         model: `${contextVehicle.brand || ''} ${contextVehicle.model || ''}`.trim(),
         regNumber: contextVehicle.registration_number || '',
         odometer: Number(contextVehicle.current_odometer) || 0,
+        fuelType: contextVehicle.fuel_type || 'Petrol',
+        photoUrl: contextVehicle.photo_url || null,
         raw: contextVehicle,
       };
     }
@@ -100,13 +132,14 @@ export default function DashboardScreen() {
         model: `${first.brand || ''} ${first.model || ''}`.trim(),
         regNumber: first.registration_number || '',
         odometer: Number(first.current_odometer) || 0,
+        fuelType: first.fuel_type || 'Petrol',
+        photoUrl: first.photo_url || null,
         raw: first,
       };
     }
     return null;
   }, [contextVehicle, vehicles, user?.id]);
 
-  // Modal Visibility States
   const [serviceModalVisible, setServiceModalVisible] = useState(false);
   const [expenseModalVisible, setExpenseModalVisible] = useState(false);
   const [docModalVisible, setDocModalVisible] = useState(false);
@@ -116,25 +149,27 @@ export default function DashboardScreen() {
     displayVehicle ? String(displayVehicle.odometer) : '0'
   );
 
+  const [odoSaving, setOdoSaving] = useState(false);
+  const [odoError, setOdoError] = useState<string | null>(null);
+  const odoPending = React.useRef(false);
+
   const [refreshing, setRefreshing] = useState(false);
   const [docRefreshKey, setDocRefreshKey] = useState(0);
-  const { isDark, theme } = useAppTheme();
+  const { theme } = useAppTheme();
 
-  // Keep newOdometer string in sync with current vehicle
   useEffect(() => {
     if (displayVehicle) {
       setNewOdometer(String(displayVehicle.odometer));
+      setOdoError(null);
     }
   }, [displayVehicle?.odometer]);
 
-  // Listen for newly saved vehicle from navigation params
   useEffect(() => {
     if (params?.newVehicle) {
       reloadVehicles();
     }
   }, [params?.newVehicle]);
 
-  // Refetch when screen gains focus (e.g. after navigating back or switching accounts)
   useFocusEffect(
     useCallback(() => {
       if (user?.id) {
@@ -143,7 +178,6 @@ export default function DashboardScreen() {
     }, [user?.id, contextVehicle?.id])
   );
 
-  // Pull-to-refresh with explicit cache invalidation
   const onRefresh = async () => {
     setRefreshing(true);
     dataCache.clear();
@@ -157,56 +191,66 @@ export default function DashboardScreen() {
   const handleUpdateOdometer = async (e?: any) => {
     e?.preventDefault?.();
     e?.stopPropagation?.();
+    if (odoPending.current || !contextVehicle) return;
     const val = Number(newOdometer);
-    if (isNaN(val) || val <= 0) {
-      Alert.alert('Invalid Input', 'Please enter a valid numeric odometer reading');
+    if (!validNonNegativeNumber(newOdometer) || val < Number(contextVehicle.current_odometer || 0)) {
+      setOdoError('Enter a valid reading equal to or greater than the current odometer.');
       return;
     }
-    if (contextVehicle) {
+    odoPending.current = true;
+    setOdoSaving(true);
+    setOdoError(null);
+    try {
+      await apiFetch(`/vehicles/${contextVehicle.id}`, { method: 'PUT', body: { current_odometer: val } });
       setContextVehicle({ ...contextVehicle, current_odometer: val });
       dataCache.clear();
       setDocRefreshKey((k) => k + 1);
-      try {
-        await apiFetch(`/vehicles/${contextVehicle.id}`, {
-          method: 'PATCH',
-          body: { current_odometer: val },
-        });
-      } catch {}
+      setOdoModalVisible(false);
+    } catch (err: any) {
+      setOdoError(err?.message || 'Could not save the odometer. Please try again.');
+    } finally {
+      odoPending.current = false;
+      setOdoSaving(false);
     }
-    setOdoModalVisible(false);
   };
 
+  const navigateToSettings = () => router.push('/settings' as any);
+
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.surface }]}>
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
-        {/* 1. Top Bar */}
-        <Animated.View
-          entering={FadeInDown.duration(240)}
-          style={[styles.topBar, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
-          <View>
-            <Text style={[styles.dashboardTitle, { color: theme.textPrimary }]}>Dashboard</Text>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <View style={styles.container}>
+        {/* 1. Header with Clean Background & Proper Alignments */}
+        <Animated.View entering={FadeInDown.duration(240)} style={styles.headerContainer}>
+          <View style={styles.topBarRow}>
+            {/* Title & Subtitle */}
+            <View style={styles.headerTitleArea}>
+              <Text style={styles.dashboardTitle}>Dashboard</Text>
+              <Text style={styles.dashboardSubtitle}>Your Vehicle, Our Care</Text>
+            </View>
+
+            {/* Right Controls: Vehicle Switcher Pill & Settings Gear */}
+            <View style={styles.rightHeaderControls}>
+              <AnimatedPressableCard
+                style={[styles.vehicleSelectorPill, { maxWidth: width < 360 ? 120 : 155 }]}
+                onPress={() => setSwitcherVisible(true)}
+                scaleTo={0.95}
+                accessibilityLabel="Select vehicle">
+                <DashboardIcon name={displayVehicle?.type.toLowerCase().includes('bike') ? 'bike' : 'gauge'} size={16} color="#1769FF" />
+                <Text style={styles.vehicleSelectorText} numberOfLines={1} ellipsizeMode="tail">
+                  {displayVehicle ? `${displayVehicle.type} - ${displayVehicle.name}` : 'Car - Honda'}
+                </Text>
+                <ChevronDownIcon color="#1769FF" />
+              </AnimatedPressableCard>
+
+              <AnimatedPressableCard
+                style={styles.settingsCircleBtn}
+                onPress={navigateToSettings}
+                scaleTo={0.9}
+                accessibilityLabel="Settings">
+                <SettingsIcon color="#101828" />
+              </AnimatedPressableCard>
+            </View>
           </View>
-
-          {/* Vehicle Selector Dropdown with Spring Touch Feedback */}
-          <AnimatedPressableCard
-            style={[styles.vehicleSelector, { backgroundColor: theme.blueSoft, borderColor: theme.border }]}
-            onPress={() => setSwitcherVisible(true)}
-            scaleTo={0.96}
-            accessibilityLabel="Select vehicle">
-            <Text style={[styles.vehicleSelectorText, { color: theme.primaryBlue }]}>
-              {displayVehicle ? `${displayVehicle.type} - ${displayVehicle.name}` : 'Select Vehicle'}
-            </Text>
-            <ChevronDownIcon />
-          </AnimatedPressableCard>
-
-          {/* Settings Gear Icon with Spring Touch Feedback */}
-          <AnimatedPressableCard
-            style={[styles.settingsBtn, { backgroundColor: theme.iconBg }]}
-            onPress={() => router.push('/settings' as any)}
-            scaleTo={0.9}
-            accessibilityLabel="Settings">
-            <SettingsIcon color={theme.textPrimary} />
-          </AnimatedPressableCard>
         </Animated.View>
 
         {/* Loading Skeleton State or Content */}
@@ -215,31 +259,35 @@ export default function DashboardScreen() {
         ) : (
           <ScrollView
             style={styles.scroll}
-            contentContainerStyle={styles.scrollContent}
+            contentContainerStyle={[styles.scrollContent, { paddingBottom: tabBarHeight + 35 }]}
             showsVerticalScrollIndicator={false}
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}
                 onRefresh={onRefresh}
-                tintColor={theme.primaryBlue}
-                colors={[theme.primaryBlue]}
+                tintColor="#1769FF"
+                colors={['#1769FF']}
               />
             }>
-            {/* 2. Vehicle Overview Card (Stagger delay 60ms) */}
+            {/* 2. Vehicle Hero Card */}
             <Animated.View entering={FadeInUp.duration(300).delay(60)}>
               <VehicleOverviewCard
                 vehicleName={displayVehicle.name}
                 category={displayVehicle.type}
-                modelDetails={`${displayVehicle.model}${displayVehicle.regNumber ? ` • ${displayVehicle.regNumber}` : ''}`}
+                modelDetails={displayVehicle.model}
+                registrationNumber={displayVehicle.regNumber}
                 odometer={displayVehicle.odometer}
+                fuelType={displayVehicle.fuelType}
+                photoUrl={displayVehicle.photoUrl}
                 onEditPress={() => {
                   setNewOdometer(displayVehicle.odometer.toString());
+                  setOdoError(null);
                   setOdoModalVisible(true);
                 }}
               />
             </Animated.View>
 
-            {/* 3. Quick Actions Row (Stagger delay 120ms) */}
+            {/* 3. Quick Actions Row */}
             <Animated.View entering={FadeInUp.duration(300).delay(120)}>
               <QuickActionsRow
                 onAddService={() => setServiceModalVisible(true)}
@@ -248,22 +296,23 @@ export default function DashboardScreen() {
               />
             </Animated.View>
 
-            {/* 4. Alerts, 2x2 Status Grid & Financial Summary (Stagger delay 180ms) */}
+            {/* 4. Alerts, 2x2 Status Grid & Financial Summary */}
             <Animated.View entering={FadeInUp.duration(300).delay(180)}>
               <StatusGrid
-                activeVehicle={displayVehicle}
+                activeVehicle={displayVehicle.raw}
                 onAnalyticsPress={() => router.push('/(tabs)/analytics' as any)}
                 onAlertPress={() => setDocModalVisible(true)}
                 onNextServicePress={() => setServiceModalVisible(true)}
                 onInsurancePress={() => setDocModalVisible(true)}
                 onPucPress={() => setDocModalVisible(true)}
                 refreshTrigger={docRefreshKey}
+                onRefreshNeeded={() => setDocRefreshKey((k) => k + 1)}
               />
             </Animated.View>
           </ScrollView>
         )}
 
-        {/* 5. Modals for Action Forms */}
+        {/* Action Modals */}
         {displayVehicle && (
           <>
             <AddServiceModal
@@ -300,20 +349,17 @@ export default function DashboardScreen() {
           </>
         )}
 
-        {/* Vehicle Switcher Modal with Smooth Animated Spring Entrance */}
+        {/* Vehicle Switcher Bottom Sheet / Modal */}
         <Modal visible={switcherVisible} transparent animationType="none">
-          <Animated.View
-            entering={FadeIn.duration(180)}
-            style={[styles.modalOverlay, { backgroundColor: theme.modalOverlay }]}>
+          <Animated.View entering={FadeIn.duration(180)} style={styles.modalOverlay}>
             <TouchableOpacity
               style={StyleSheet.absoluteFill}
               activeOpacity={1}
               onPress={() => setSwitcherVisible(false)}
             />
-            <Animated.View
-              entering={ZoomIn.duration(200)}
-              style={[styles.modalBox, { backgroundColor: theme.card, borderColor: theme.border, borderWidth: 1 }]}>
+            <Animated.View entering={ZoomIn.duration(200)} style={[styles.modalBox, { backgroundColor: theme.card }]}>
               <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>Select Vehicle</Text>
+              <Text style={styles.modalSubtitle}>Choose a vehicle to update dashboard statistics</Text>
 
               {vehicles && vehicles.length > 0 ? (
                 vehicles.map((v) => {
@@ -323,36 +369,77 @@ export default function DashboardScreen() {
                       key={v.id}
                       style={[
                         styles.modalVehicleItem,
-                        { backgroundColor: theme.surface2, borderColor: theme.border },
-                        isSelected && [
-                          styles.modalVehicleItemActive,
-                          { backgroundColor: theme.blueSoft, borderColor: theme.primaryBlue },
-                        ],
+                        isSelected && styles.modalVehicleItemActive,
                       ]}
                       onPress={() => {
                         setContextVehicle(v);
+                        dataCache.clear();
+                        setDocRefreshKey((k) => k + 1);
                         setSwitcherVisible(false);
                       }}
                       scaleTo={0.98}>
-                      <Text style={[styles.modalVehicleName, { color: theme.textPrimary }]}>
-                        {v.type || 'Vehicle'} - {v.brand} {v.model}
-                      </Text>
-                      {isSelected && (
-                        <Text style={[styles.modalVehicleActiveCheck, { color: theme.primaryBlue }]}>✓</Text>
-                      )}
+                      <View style={styles.vehicleItemLeft}>
+                        <Text style={styles.vehicleItemTypeBadge}>
+                          {v.type || 'Car'}
+                        </Text>
+                        <View style={{ flexShrink: 1 }}>
+                          <Text style={[styles.modalVehicleName, { color: theme.textPrimary }]} numberOfLines={1}>
+                            {v.brand} {v.model}
+                          </Text>
+                          {v.registration_number ? (
+                            <Text style={styles.vehicleItemReg} numberOfLines={1}>
+                              {v.registration_number}
+                            </Text>
+                          ) : null}
+                        </View>
+                      </View>
+                      
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                        {isSelected && (
+                          <Text style={styles.modalVehicleActiveCheck}>✓</Text>
+                        )}
+                        <TouchableOpacity
+                          style={{
+                            padding: 6,
+                            borderRadius: 8,
+                            backgroundColor: '#FEF2F2',
+                          }}
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            Alert.alert(
+                              'Delete Vehicle',
+                              `Are you sure you want to delete ${v.brand} ${v.model}? All associated records will be removed.`,
+                              [
+                                { text: 'Cancel', style: 'cancel' },
+                                {
+                                  text: 'Delete',
+                                  style: 'destructive',
+                                  onPress: async () => {
+                                    const ok = await deleteVehicle(v.id);
+                                    if (ok) {
+                                      dataCache.clear();
+                                      setDocRefreshKey((k) => k + 1);
+                                    } else {
+                                      Alert.alert('Error', 'Could not delete vehicle. Please try again.');
+                                    }
+                                  },
+                                },
+                              ]
+                            );
+                          }}
+                          accessibilityLabel="Delete vehicle">
+                          <TrashIcon color="#EF4444" />
+                        </TouchableOpacity>
+                      </View>
                     </AnimatedPressableCard>
                   );
                 })
               ) : displayVehicle ? (
-                <View
-                  style={[
-                    styles.modalVehicleItem,
-                    { backgroundColor: theme.blueSoft, borderColor: theme.primaryBlue },
-                  ]}>
+                <View style={[styles.modalVehicleItem, styles.modalVehicleItemActive]}>
                   <Text style={[styles.modalVehicleName, { color: theme.textPrimary }]}>
                     {displayVehicle.type} - {displayVehicle.name}
                   </Text>
-                  <Text style={[styles.modalVehicleActiveCheck, { color: theme.primaryBlue }]}>✓</Text>
+                  <Text style={styles.modalVehicleActiveCheck}>✓</Text>
                 </View>
               ) : null}
 
@@ -363,7 +450,7 @@ export default function DashboardScreen() {
                   router.push('/vehicle/add' as any);
                 }}
                 scaleTo={0.96}>
-                <Text style={[styles.addVehicleBtnText, { color: theme.primaryBlue }]}>+ Add New Vehicle</Text>
+                <Text style={styles.addVehicleBtnText}>+ Add New Vehicle</Text>
               </AnimatedPressableCard>
             </Animated.View>
           </Animated.View>
@@ -371,33 +458,39 @@ export default function DashboardScreen() {
 
         {/* Edit Odometer Modal */}
         <Modal visible={odoModalVisible} transparent animationType="fade">
-          <View style={[styles.modalOverlay, { backgroundColor: theme.modalOverlay }]}>
-            <View style={[styles.modalBox, { backgroundColor: theme.card, borderColor: theme.border, borderWidth: 1 }]}>
-              <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>Update Current Mileage</Text>
-              <Text style={[styles.modalSubtitle, { color: theme.textMuted }]}>
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalBox, { backgroundColor: theme.card }]}>
+              <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>Update Odometer Reading</Text>
+              <Text style={styles.modalSubtitle}>
                 Enter updated odometer reading in kilometers
               </Text>
+
+              {odoError ? (
+                <View style={{ backgroundColor: '#FEF2F2', padding: 8, borderRadius: 8, marginBottom: 12 }}>
+                  <Text style={{ color: '#EF4444', fontSize: 12, fontWeight: '600' }}>{odoError}</Text>
+                </View>
+              ) : null}
+
               <TextInput
-                style={[
-                  styles.odoInput,
-                  { backgroundColor: theme.inputBg, borderColor: theme.primaryBlue, color: theme.textPrimary },
-                ]}
+                style={styles.odoInput}
                 value={newOdometer}
                 onChangeText={setNewOdometer}
-                placeholderTextColor={theme.textFaint}
+                placeholderTextColor="#98A2B3"
                 keyboardType="numeric"
                 autoFocus
               />
               <View style={styles.modalButtonsRow}>
                 <TouchableOpacity
-                  style={[styles.modalCancelBtn, { backgroundColor: theme.iconBg }]}
-                  onPress={() => setOdoModalVisible(false)}>
-                  <Text style={[styles.modalCancelText, { color: theme.textSecondary }]}>Cancel</Text>
+                  style={styles.modalCancelBtn}
+                  onPress={() => setOdoModalVisible(false)}
+                  disabled={odoSaving}>
+                  <Text style={styles.modalCancelText}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.modalSaveBtn, { backgroundColor: theme.primaryBlue }]}
-                  onPress={handleUpdateOdometer}>
-                  <Text style={styles.modalSaveText}>Update</Text>
+                  style={[styles.modalSaveBtn, odoSaving && { opacity: 0.6 }]}
+                  onPress={handleUpdateOdometer}
+                  disabled={odoSaving}>
+                  <Text style={styles.modalSaveText}>{odoSaving ? 'Saving...' : 'Update'}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -411,64 +504,97 @@ export default function DashboardScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F5F8FC',
   },
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#F5F8FC',
   },
-  /* Top Bar */
-  topBar: {
+  /* Header Area */
+  headerContainer: {
+    paddingHorizontal: SCREEN_PADDING,
+    paddingTop: 12,
+    paddingBottom: 16,
+    backgroundColor: '#F5F8FC',
+  },
+  topBarRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
+  },
+  headerTitleArea: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: 8,
   },
   dashboardTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#0F172A',
-    letterSpacing: -0.3,
+    fontSize: 24,
+    fontWeight: '900',
+    color: '#101828',
+    letterSpacing: -0.5,
   },
-  vehicleSelector: {
+  dashboardSubtitle: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#667085',
+    marginTop: 2,
+  },
+  rightHeaderControls: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#EFF6FF',
-    paddingHorizontal: 12,
+    gap: 8,
+    flexShrink: 0,
+  },
+  vehicleSelectorPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E4EAF2',
+    paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
     gap: 6,
+    height: 38,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
   },
   vehicleSelectorText: {
-    fontSize: 13,
+    fontSize: 12.5,
     fontWeight: '700',
-    color: '#2563EB',
+    color: '#1769FF',
+    flexShrink: 1,
   },
-  settingsBtn: {
+  settingsCircleBtn: {
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E4EAF2',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
   },
-  /* Scroll */
+  /* Scroll Area */
   scroll: {
     flex: 1,
   },
   scrollContent: {
-    paddingTop: 16,
+    paddingTop: 8,
+    paddingHorizontal: SCREEN_PADDING,
   },
   /* Modals */
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.5)',
+    backgroundColor: 'rgba(8, 26, 58, 0.65)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
@@ -476,24 +602,22 @@ const styles = StyleSheet.create({
   modalBox: {
     width: '100%',
     maxWidth: 380,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
+    borderRadius: 20,
     padding: 20,
     shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 8,
   },
   modalTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#0F172A',
+    fontSize: 18,
+    fontWeight: '800',
     marginBottom: 4,
   },
   modalSubtitle: {
-    fontSize: 13,
-    color: '#64748B',
+    fontSize: 12.5,
+    color: '#667085',
     marginBottom: 16,
   },
   modalVehicleItem: {
@@ -502,46 +626,69 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 14,
-    borderRadius: 10,
+    borderRadius: 14,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: '#E4EAF2',
     marginBottom: 8,
   },
   modalVehicleItemActive: {
     backgroundColor: '#EFF6FF',
-    borderColor: '#2563EB',
+    borderColor: '#1769FF',
+    borderWidth: 1.5,
+  },
+  vehicleItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+    marginRight: 8,
+  },
+  vehicleItemTypeBadge: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#1769FF',
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
   },
   modalVehicleName: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#0F172A',
+    fontWeight: '700',
+    color: '#101828',
+  },
+  vehicleItemReg: {
+    fontSize: 11,
+    color: '#667085',
+    marginTop: 1,
   },
   modalVehicleActiveCheck: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#2563EB',
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#1769FF',
   },
   addVehicleBtn: {
     paddingVertical: 12,
     alignItems: 'center',
-    marginTop: 6,
+    marginTop: 8,
   },
   addVehicleBtnText: {
     fontSize: 14,
-    fontWeight: '700',
-    color: '#2563EB',
+    fontWeight: '800',
+    color: '#1769FF',
   },
   odoInput: {
     height: 48,
     borderWidth: 1.5,
-    borderColor: '#2563EB',
-    borderRadius: 10,
+    borderColor: '#1769FF',
+    borderRadius: 12,
     paddingHorizontal: 14,
     fontSize: 16,
-    fontWeight: '700',
-    color: '#0F172A',
+    fontWeight: '800',
+    color: '#101828',
     marginBottom: 16,
+    backgroundColor: '#F8FAFC',
   },
   modalButtonsRow: {
     flexDirection: 'row',
@@ -549,20 +696,21 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   modalCancelBtn: {
-    paddingHorizontal: 16,
+    paddingHorizontal: SCREEN_PADDING,
     paddingVertical: 10,
-    borderRadius: 8,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
   },
   modalCancelText: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#64748B',
   },
   modalSaveBtn: {
-    paddingHorizontal: 18,
+    paddingHorizontal: 20,
     paddingVertical: 10,
-    borderRadius: 8,
-    backgroundColor: '#2563EB',
+    borderRadius: 10,
+    backgroundColor: '#1769FF',
   },
   modalSaveText: {
     fontSize: 14,

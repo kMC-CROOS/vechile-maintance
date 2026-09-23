@@ -3,9 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Vehicle;
-use App\Models\VehicleInsurance;
-use App\Models\VehicleWarranty;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 
 class VehicleController extends Controller
 {
@@ -20,6 +20,7 @@ class VehicleController extends Controller
     {
         $vehicles = $request->user()->vehicles()
             ->with(['insurance', 'warranty', 'taxRecord'])
+            ->orderBy('created_at', 'desc')
             ->get();
 
         return response()->json($vehicles);
@@ -27,16 +28,55 @@ class VehicleController extends Controller
 
     public function store(Request $request)
     {
+        $currentYear = (int) date('Y');
+
         $validated = $request->validate([
-            'type' => 'required|string',
-            'brand' => 'required|string',
-            'model' => 'required|string',
-            'registration_number' => 'required|string',
-            'fuel_type' => 'required|string',
-            'transmission' => 'required|string',
+            'registration_number' => [
+                'required',
+                'string',
+                'max:50',
+                Rule::unique('vehicles', 'registration_number')->where('user_id', $request->user()->id),
+            ],
+            'make' => 'required|string|max:100',
+            'brand' => 'nullable|string|max:100',
             'current_odometer' => 'required|numeric|min:0',
-            'engine_capacity' => 'nullable|string',
+            
+            'type' => 'nullable|string|max:100',
+            'model' => 'nullable|string|max:100',
+            'fuel_type' => 'nullable|string|max:50',
+            'transmission' => 'nullable|string|max:50',
+            'engine_capacity' => 'nullable|string|max:50',
             'notes' => 'nullable|string',
+
+            // RMV Registration fields
+            'chassis_number' => 'nullable|string|max:100',
+            'engine_number' => 'nullable|string|max:100',
+            'owner_details' => 'nullable|string',
+            'conditions_special_notes' => 'nullable|string',
+            'absolute_owner' => 'nullable|string|max:150',
+            'cylinder_capacity' => 'nullable|integer|min:0',
+            'vehicle_class' => 'nullable|string|max:100',
+            'taxation_class' => 'nullable|string|max:100',
+            'status_when_registered' => 'nullable|string|max:100',
+            'country_of_origin' => 'nullable|string|max:100',
+            'manufacturer_description' => 'nullable|string',
+            'wheel_base' => 'nullable|integer|min:0',
+            'overhang' => 'nullable|integer|min:0',
+            'body_type' => 'nullable|string|max:100',
+            'year_of_manufacture' => "nullable|integer|min:1900|max:" . ($currentYear + 1),
+            'colour' => 'nullable|string|max:100',
+            'previous_owners' => 'nullable|string|max:100',
+            'seating_capacity' => 'nullable|integer|min:0',
+            'weight_kg' => 'nullable|integer|min:0',
+            'tyre_size' => 'nullable|string|max:100',
+            'dimensions' => 'nullable|string|max:100',
+            'internal_height' => 'nullable|string|max:100',
+            'provincial_council' => 'nullable|string|max:100',
+            'date_of_first_registration' => 'nullable|date|before_or_equal:today',
+            'taxes_payable' => 'nullable|string|max:100',
+            'photo_url' => 'nullable|string',
+            'photo' => 'nullable|file|image|max:10240',
+
             // Optional nested insurance
             'insurance_provider' => 'nullable|string',
             'insurance_policy_number' => 'nullable|string',
@@ -49,17 +89,42 @@ class VehicleController extends Controller
             'warranty_reminder_days' => 'nullable|integer',
         ]);
 
-        $vehicle = $request->user()->vehicles()->create([
-            'type' => $validated['type'],
-            'brand' => $validated['brand'],
-            'model' => $validated['model'],
-            'registration_number' => $validated['registration_number'],
-            'fuel_type' => $validated['fuel_type'],
-            'transmission' => $validated['transmission'],
-            'current_odometer' => $validated['current_odometer'],
-            'engine_capacity' => $validated['engine_capacity'] ?? null,
-            'notes' => $validated['notes'] ?? null,
+        // Handle image file upload if present
+        if ($request->hasFile('photo')) {
+            $path = $request->file('photo')->store('vehicles', 'public');
+            $validated['photo_url'] = url(Storage::url($path));
+        }
+
+        // Map brand/make fallback
+        $brand = $validated['make'] ?? $validated['brand'] ?? 'Unknown';
+        $type = $validated['type'] ?? 'Car';
+        $model = $validated['model'] ?? $validated['manufacturer_description'] ?? 'Standard';
+        $fuelType = $validated['fuel_type'] ?? 'Petrol';
+        $transmission = $validated['transmission'] ?? 'Automatic';
+
+        $vehicleData = array_merge($validated, [
+            'brand' => $brand,
+            'type' => $type,
+            'model' => $model,
+            'fuel_type' => $fuelType,
+            'transmission' => $transmission,
         ]);
+
+        // Remove non-table attributes
+        unset(
+            $vehicleData['make'],
+            $vehicleData['photo'],
+            $vehicleData['insurance_provider'],
+            $vehicleData['insurance_policy_number'],
+            $vehicleData['insurance_start_date'],
+            $vehicleData['insurance_expiry_date'],
+            $vehicleData['insurance_reminder_days'],
+            $vehicleData['warranty_start_date'],
+            $vehicleData['warranty_expiry_date'],
+            $vehicleData['warranty_reminder_days']
+        );
+
+        $vehicle = $request->user()->vehicles()->create($vehicleData);
 
         if (!empty($validated['insurance_expiry_date'])) {
             $vehicle->insurance()->create([
@@ -95,17 +160,66 @@ class VehicleController extends Controller
         $vehicle = Vehicle::findOrFail($id);
         $this->checkOwnership($vehicle);
 
+        $currentYear = (int) date('Y');
+
         $validated = $request->validate([
-            'type' => 'sometimes|required|string',
-            'brand' => 'sometimes|required|string',
-            'model' => 'sometimes|required|string',
-            'registration_number' => 'sometimes|required|string',
-            'fuel_type' => 'sometimes|required|string',
-            'transmission' => 'sometimes|required|string',
+            'registration_number' => [
+                'sometimes',
+                'required',
+                'string',
+                'max:50',
+                Rule::unique('vehicles', 'registration_number')->where('user_id', $request->user()->id)->ignore($vehicle->id),
+            ],
+            'make' => 'sometimes|required|string|max:100',
+            'brand' => 'nullable|string|max:100',
             'current_odometer' => 'sometimes|required|numeric|min:0',
-            'engine_capacity' => 'nullable|string',
+
+            'type' => 'nullable|string|max:100',
+            'model' => 'nullable|string|max:100',
+            'fuel_type' => 'nullable|string|max:50',
+            'transmission' => 'nullable|string|max:50',
+            'engine_capacity' => 'nullable|string|max:50',
             'notes' => 'nullable|string',
+
+            'chassis_number' => 'nullable|string|max:100',
+            'engine_number' => 'nullable|string|max:100',
+            'owner_details' => 'nullable|string',
+            'conditions_special_notes' => 'nullable|string',
+            'absolute_owner' => 'nullable|string|max:150',
+            'cylinder_capacity' => 'nullable|integer|min:0',
+            'vehicle_class' => 'nullable|string|max:100',
+            'taxation_class' => 'nullable|string|max:100',
+            'status_when_registered' => 'nullable|string|max:100',
+            'country_of_origin' => 'nullable|string|max:100',
+            'manufacturer_description' => 'nullable|string',
+            'wheel_base' => 'nullable|integer|min:0',
+            'overhang' => 'nullable|integer|min:0',
+            'body_type' => 'nullable|string|max:100',
+            'year_of_manufacture' => "nullable|integer|min:1900|max:" . ($currentYear + 1),
+            'colour' => 'nullable|string|max:100',
+            'previous_owners' => 'nullable|string|max:100',
+            'seating_capacity' => 'nullable|integer|min:0',
+            'weight_kg' => 'nullable|integer|min:0',
+            'tyre_size' => 'nullable|string|max:100',
+            'dimensions' => 'nullable|string|max:100',
+            'internal_height' => 'nullable|string|max:100',
+            'provincial_council' => 'nullable|string|max:100',
+            'date_of_first_registration' => 'nullable|date|before_or_equal:today',
+            'taxes_payable' => 'nullable|string|max:100',
+            'photo_url' => 'nullable|string',
+            'photo' => 'nullable|file|image|max:10240',
         ]);
+
+        if ($request->hasFile('photo')) {
+            $path = $request->file('photo')->store('vehicles', 'public');
+            $validated['photo_url'] = url(Storage::url($path));
+        }
+
+        if (isset($validated['make'])) {
+            $validated['brand'] = $validated['make'];
+            unset($validated['make']);
+        }
+        unset($validated['photo']);
 
         $vehicle->update($validated);
 

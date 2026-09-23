@@ -1,9 +1,12 @@
+import { DashboardIcon } from '@/components/dashboard/DashboardIcon';
 import React from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from 'react-native';
 import { Tabs } from 'expo-router';
 import { useAppTheme } from '@/context/ThemeContext';
 
 export default function TabLayout() {
+  const insets = useSafeAreaInsets();
   const { theme } = useAppTheme();
 
   return (
@@ -16,12 +19,16 @@ export default function TabLayout() {
           backgroundColor: theme.tabBar,
           borderTopColor: theme.tabBarBorder,
           borderTopWidth: 1,
-          height: 62,
-          paddingBottom: 8,
+          height: 62 + Math.max(insets.bottom, 8),
+          borderTopLeftRadius: 24,
+          borderTopRightRadius: 24,
+          paddingBottom: Math.max(insets.bottom, 8),
           paddingTop: 8,
         },
+        tabBarItemStyle: { flex: 1, minWidth: 0 },
+        tabBarLabelPosition: 'below-icon',
         tabBarLabelStyle: {
-          fontSize: 10.5,
+          fontSize: 10,
           fontWeight: '600',
         },
       }}>
@@ -29,37 +36,39 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18 }}>🏠</Text>,
+          tabBarIcon: ({ color }) => <DashboardIcon name="home" color={color} size={24} />,
         }}
       />
       <Tabs.Screen
         name="fuel"
         options={{
           title: 'Fuel',
-          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18 }}>⛽</Text>,
+          tabBarIcon: ({ color }) => <DashboardIcon name="fuel" color={color} size={24} />,
         }}
       />
       <Tabs.Screen
         name="services"
         options={{
           title: 'Service',
-          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18 }}>🔧</Text>,
+          tabBarIcon: ({ color }) => <DashboardIcon name="service" color={color} size={24} />,
         }}
       />
       <Tabs.Screen
         name="expenses"
         options={{
           title: 'Expenses',
-          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18 }}>💳</Text>,
+          href: null,
+          tabBarIcon: ({ color }) => <DashboardIcon name="wallet" color={color} size={24} />,
         }}
       />
       <Tabs.Screen
         name="docs"
         options={{
-          title: 'Docs',
-          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18 }}>📁</Text>,
+          title: 'Documents',
+          tabBarIcon: ({ color }) => <DashboardIcon name="document" color={color} size={24} />,
         }}
       />
+      <Tabs.Screen name="more" options={{ title: 'More', tabBarIcon: ({ color }) => <DashboardIcon name="more" color={color} size={24} /> }} />
       <Tabs.Screen
         name="analytics"
         options={{

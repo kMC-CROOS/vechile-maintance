@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { apiFetch } from '@/services/api';
+import { dataCache } from '@/services/dataCache';
 
 export interface Vehicle {
   id: number;
@@ -14,9 +15,36 @@ export interface Vehicle {
   current_odometer: number;
   engine_capacity?: string;
   notes?: string;
+  chassis_number?: string;
+  engine_number?: string;
+  owner_details?: string;
+  conditions_special_notes?: string;
+  absolute_owner?: string;
+  cylinder_capacity?: number;
+  vehicle_class?: string;
+  taxation_class?: string;
+  status_when_registered?: string;
+  country_of_origin?: string;
+  manufacturer_description?: string;
+  wheel_base?: number;
+  overhang?: number;
+  body_type?: string;
+  year_of_manufacture?: number;
+  colour?: string;
+  previous_owners?: string;
+  seating_capacity?: number;
+  weight_kg?: number;
+  tyre_size?: string;
+  dimensions?: string;
+  internal_height?: string;
+  provincial_council?: string;
+  date_of_first_registration?: string;
+  taxes_payable?: string;
+  photo_url?: string;
   insurance?: any;
   warranty?: any;
   tax_record?: any;
+  [key: string]: any;
 }
 
 interface VehicleContextType {
@@ -25,6 +53,7 @@ interface VehicleContextType {
   isLoading: boolean;
   setActiveVehicle: (vehicle: Vehicle | null) => void;
   reloadVehicles: (selectId?: number) => Promise<Vehicle[]>;
+  deleteVehicle: (vehicleId: number) => Promise<boolean>;
 }
 
 const VehicleContext = createContext<VehicleContextType | undefined>(undefined);
@@ -74,6 +103,17 @@ export const VehicleProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  const deleteVehicle = async (vehicleId: number): Promise<boolean> => {
+    try {
+      await apiFetch(`/vehicles/${vehicleId}`, { method: 'DELETE' });
+      dataCache.clear();
+      await reloadVehicles();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   // Reset and reload vehicles whenever the authenticated user ID changes
   useEffect(() => {
     if (authLoading) return;
@@ -86,6 +126,7 @@ export const VehicleProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setVehicles([]);
       setActiveVehicle(null);
       setIsLoading(false);
+      return;
     }
   }, [isAuthenticated, authLoading, user?.id]);
 
@@ -97,6 +138,7 @@ export const VehicleProvider: React.FC<{ children: React.ReactNode }> = ({ child
         isLoading,
         setActiveVehicle,
         reloadVehicles,
+        deleteVehicle,
       }}>
       {children}
     </VehicleContext.Provider>

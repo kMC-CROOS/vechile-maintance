@@ -1,3 +1,6 @@
+import * as ImagePicker from 'expo-image-picker';
+import { apiFetch } from '@/services/api';
+import { validDocumentDate, validNonNegativeNumber } from '@/utils/dashboardValidation';
 import React, { useRef, useState } from 'react';
 import {
   Alert,
@@ -23,17 +26,7 @@ interface AddDocumentModalProps {
   vehicleId?: number | string;
 }
 
-const DOCUMENT_TYPES = [
-  'RC Book',
-  'Insurance',
-  'PUC Certificate',
-  'Driving Licence',
-  'Invoice',
-  'Warranty',
-  'Service Book',
-  'Pollution Certificate',
-  'Other',
-] as const;
+const DOCUMENT_TYPES = ['Insurance', 'Warranty', 'Revenue Licence / Tax'] as const;
 
 // Icons
 const CloseIcon = () => (
@@ -68,33 +61,35 @@ const ChevronRightIcon = () => (
   </Svg>
 );
 
-const DOCS_STORAGE_KEY = 'vehiclecare_documents_records';
-const PREF_STORAGE_KEY = 'vehiclecare_alert_preferences';
+
 
 export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
   visible,
   onClose,
   onSave,
   initialCategory,
-  vehicleId = 1,
+  vehicleId,
 }) => {
   const today = new Date().toISOString().split('T')[0];
 
   // Default initial values
   const [docType, setDocType] = useState<string>(initialCategory || 'Insurance');
-  const [docTitle, setDocTitle] = useState('Comprehensive Vehicle Insurance');
+  const docTitle = docType;
+  const [amountPaid, setAmountPaid] = useState('0');
   const [docNumber, setDocNumber] = useState('');
   const [issueDate, setIssueDate] = useState(today);
-  const [expiryDate, setExpiryDate] = useState('2026-09-22');
+  const [expiryDate, setExpiryDate] = useState('');
   const [expiryNotification, setExpiryNotification] = useState(true);
-  const [expiryAlarm, setExpiryAlarm] = useState(false);
+
   const [attachedFileInfo, setAttachedFileInfo] = useState<{
     name: string;
     sizeFormatted: string;
     uri?: string;
   } | null>(null);
-  const [notes, setNotes] = useState('');
+
   const [loading, setLoading] = useState(false);
+  const saving = useRef(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Calendar Modal State
   const [calendarTarget, setCalendarTarget] = useState<'issue' | 'expiry' | null>(null);
@@ -104,7 +99,7 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
   const fileInputRef = useRef<any>(null);
 
   // Trigger file attachment
-  const handleAttachPress = (e?: any) => {
+  const handleAttachPress = async (e?: any) => {
     e?.preventDefault?.();
     e?.stopPropagation?.();
 
@@ -133,12 +128,15 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
         input.click();
       }
     } else {
-      // Mobile / Fallback simulation
-      setAttachedFileInfo({
-        name: 'insurance_policy_document_2026.pdf',
-        sizeFormatted: '1.8 MB',
-      });
-      Alert.alert('File Attached', 'Document "insurance_policy_document_2026.pdf" (1.8 MB) selected.');
+      try {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) { setSaveError('Photo access is required to attach a document.'); return; }
+        const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 });
+        if (!result.canceled && result.assets?.[0]) {
+          const asset = result.assets[0];
+          setAttachedFileInfo({ name: asset.fileName || 'document.jpg', uri: asset.uri, sizeFormatted: asset.fileSize ? `${Math.ceil(asset.fileSize / 1024)} KB` : 'Photo' });
+        }
+      } catch { setSaveError('Could not attach the photo. Please try again.'); }
     }
   };
 
@@ -229,11 +227,15 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
     e?.preventDefault?.();
     e?.stopPropagation?.();
 
-    if (!docTitle.trim()) {
-      Alert.alert('Required Field', 'Please enter a Document Title');
-      return;
+    if (saving.current) return;
+    setSaveError(null);
+    if (!vehicleId) { setSaveError('Select a vehicle first.'); return; }
+    if (!docTitle.trim()) { setSaveError('Enter a document title.'); return; }
+    if (!validDocumentDate(issueDate) || !validDocumentDate(expiryDate) || expiryDate < issueDate) {
+      setSaveError('Choose valid dates. Expiry must be on or after the issue date.'); return;
     }
-
+    if (docType === 'Revenue Licence / Tax' && !validNonNegativeNumber(amountPaid)) { setSaveError('Enter a valid amount paid.'); return; }
+    saving.current = true;
     setLoading(true);
 
     const docCategory =
@@ -254,57 +256,31 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
       valid_until: expiryDate,
       expiry_date: expiryDate,
       expiryNotification,
-      expiryAlarm,
+
       document_path: attachedFileInfo?.uri,
       fileName: attachedFileInfo ? `${attachedFileInfo.name} (${attachedFileInfo.sizeFormatted})` : undefined,
-      notes: notes.trim() || undefined,
+
       created_at: new Date().toISOString(),
     };
 
     try {
-      // 1. Persist to localStorage for DocumentsScreen synchronization
-      if (typeof window !== 'undefined' && window.localStorage) {
-        try {
-          const cached = window.localStorage.getItem(DOCS_STORAGE_KEY);
-          let currentDocs: any[] = [];
-          if (cached) {
-            const parsed = JSON.parse(cached);
-            if (Array.isArray(parsed)) currentDocs = parsed;
-          }
-          const updatedDocs = [newDocRecord, ...currentDocs];
-          window.localStorage.setItem(DOCS_STORAGE_KEY, JSON.stringify(updatedDocs));
-
-          // 2. If expiryNotification or expiryAlarm is enabled, register/update alert preference
-          if (expiryNotification || expiryAlarm) {
-            const prefCached = window.localStorage.getItem(PREF_STORAGE_KEY);
-            let currentAlerts: any[] = [];
-            if (prefCached) {
-              const parsedAlerts = JSON.parse(prefCached);
-              if (Array.isArray(parsedAlerts)) currentAlerts = parsedAlerts;
-            }
-
-            const alertId = `doc-${newDocRecord.id}`;
-            const newAlertConfig = {
-              id: alertId,
-              title: docTitle.trim(),
-              subtitle: `${docType}${docNumber ? ` (${docNumber.trim()})` : ''}`,
-              category: docCategory,
-              expiryDate: expiryDate,
-              bannerEnabled: expiryNotification,
-              alarmEnabled: expiryAlarm,
-              leadDays: 14,
-            };
-
-            const updatedAlerts = [
-              newAlertConfig,
-              ...currentAlerts.filter((a) => a.id !== alertId),
-            ];
-            window.localStorage.setItem(PREF_STORAGE_KEY, JSON.stringify(updatedAlerts));
-          }
-        } catch (storageErr) {
-          console.warn('Error updating localStorage:', storageErr);
+      const body = new FormData();
+      body.append(docCategory === 'tax' ? 'valid_until' : 'expiry_date', expiryDate);
+      if (docCategory === 'tax') body.append('amount_paid', amountPaid);
+      body.append('start_date', issueDate);
+      body.append('policy_number', docNumber.trim());
+      body.append('reminder_days_before', expiryNotification ? '14' : '0');
+      if (attachedFileInfo?.uri) {
+        if (Platform.OS === 'web') {
+          const blob = await (await fetch(attachedFileInfo.uri)).blob();
+          if (blob.size > 10 * 1024 * 1024 || !['image/jpeg', 'image/png', 'application/pdf'].includes(blob.type)) throw new Error('Attach a JPG, PNG or PDF smaller than 10 MB.');
+          body.append('document', blob, attachedFileInfo.name);
+        } else {
+          body.append('document', { uri: attachedFileInfo.uri, name: attachedFileInfo.name, type: /\.png$/i.test(attachedFileInfo.name) ? 'image/png' : 'image/jpeg' } as any);
         }
       }
+      const saved = await apiFetch<any>(`/vehicles/${vehicleId}/${docCategory}`, { method: 'POST', body, isFormData: true });
+      Object.assign(newDocRecord, saved);
 
       // 3. Trigger parent callback
       if (onSave) {
@@ -314,13 +290,14 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
       Alert.alert(
         'Document Saved',
         `"${docTitle}" has been saved successfully.${
-          expiryAlarm ? ' Native expiry alarm is active.' : ''
+          ''
         }`
       );
       onClose();
     } catch (err: any) {
-      Alert.alert('Error', err?.message || 'Failed to save document record');
+      setSaveError(err?.message || 'Failed to save document record');
     } finally {
+      saving.current = false;
       setLoading(false);
     }
   };
@@ -357,6 +334,7 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
               style={styles.scroll}
               contentContainerStyle={styles.scrollContent}
               keyboardShouldPersistTaps="handled">
+            {saveError ? <Text accessibilityRole="alert" style={{ color: '#B91C1C', margin: 12 }}>{saveError}</Text> : null}
               {/* Document Type Pills */}
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>Document Type</Text>
@@ -370,9 +348,7 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
                         onPress={(e) => {
                           e?.preventDefault?.();
                           setDocType(type);
-                          if (!docTitle || DOCUMENT_TYPES.some((d) => d === docTitle)) {
-                            setDocTitle(type === 'Insurance' ? 'Comprehensive Vehicle Insurance' : type);
-                          }
+
                         }}
                         activeOpacity={0.75}>
                         <Text style={[styles.pillText, active && styles.pillTextActive]}>
@@ -384,31 +360,14 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
                 </View>
               </View>
 
-              {/* Title & Document Number */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>
-                  Document Title <Text style={styles.requiredStar}>*</Text>
-                </Text>
-                <TextInput
-                  style={styles.input}
-                  value={docTitle}
-                  onChangeText={setDocTitle}
-                  placeholder="e.g. Comprehensive Vehicle Insurance"
-                  placeholderTextColor="#94A3B8"
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Document Number / Policy ID</Text>
-                <TextInput
-                  style={styles.input}
-                  value={docNumber}
-                  onChangeText={setDocNumber}
-                  placeholder="e.g. POL-8934-2026-X"
-                  placeholderTextColor="#94A3B8"
-                  autoCapitalize="characters"
-                />
-              </View>
+              {docType === 'Insurance' ? <View style={styles.inputGroup}>
+                <Text style={styles.label}>Policy Number</Text>
+                <TextInput style={styles.input} value={docNumber} onChangeText={setDocNumber} maxLength={100} placeholder="Policy number" />
+              </View> : null}
+              {docType === 'Revenue Licence / Tax' ? <View style={styles.inputGroup}>
+                <Text style={styles.label}>Amount Paid</Text>
+                <TextInput style={styles.input} value={amountPaid} onChangeText={setAmountPaid} keyboardType="decimal-pad" />
+              </View> : null}
 
               {/* Dates */}
               <View style={styles.row}>
@@ -429,20 +388,20 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
                     style={styles.dateWrapper}
                     activeOpacity={0.75}
                     onPress={(e) => openCalendar('expiry', e)}>
-                    <Text style={styles.dateValueText}>{expiryDate || '2026-09-22'}</Text>
+                    <Text style={styles.dateValueText}>{expiryDate || 'Select date'}</Text>
                     <CalendarIcon />
                   </TouchableOpacity>
                 </View>
               </View>
 
-              {/* Notification & Alarm Toggles */}
-              <View style={styles.card}>
+              {/* Dashboard reminders */}
+              {docType !== 'Revenue Licence / Tax' ? <View style={styles.card}>
                 <Text style={styles.cardTitle}>Expiry Reminder Settings</Text>
                 <View style={styles.toggleRow}>
                   <View style={styles.toggleTextWrapper}>
-                    <Text style={styles.toggleTitle}>Document Expiry Notification</Text>
+                    <Text style={styles.toggleTitle}>Remind 14 days before expiry</Text>
                     <Text style={styles.toggleSubtext}>
-                      Receive banner notifications before and on expiry
+                      Show on the dashboard 14 days before expiry; otherwise on the expiry date.
                     </Text>
                   </View>
                   <Switch
@@ -453,26 +412,7 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
                   />
                 </View>
 
-                <View style={[styles.toggleRow, styles.toggleDivider]}>
-                  <View style={styles.toggleTextWrapper}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Text style={styles.toggleTitle}>Document Expiry Native Alarm</Text>
-                      <View style={styles.nativeAlarmTag}>
-                        <Text style={styles.nativeAlarmTagText}>HIGH PRIORITY</Text>
-                      </View>
-                    </View>
-                    <Text style={styles.toggleSubtext}>
-                      Trigger device alarm sound on due date & time
-                    </Text>
-                  </View>
-                  <Switch
-                    value={expiryAlarm}
-                    onValueChange={setExpiryAlarm}
-                    trackColor={{ false: '#CBD5E1', true: '#FECACA' }}
-                    thumbColor={expiryAlarm ? '#DC2626' : '#FFFFFF'}
-                  />
-                </View>
-              </View>
+              </View> : null}
 
               {/* File Attachment Dropzone */}
               <View style={styles.card}>
@@ -505,25 +445,11 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
                   <Text style={styles.uploadSubText}>
                     {attachedFileInfo
                       ? 'Tap to change file'
-                      : 'Supports PDF, JPG, PNG up to 15MB'}
+                      : 'JPG / PNG photos, or PDF on web, up to 10 MB'}
                   </Text>
                 </TouchableOpacity>
               </View>
 
-              {/* Notes */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Notes</Text>
-                <TextInput
-                  style={[styles.input, styles.textArea]}
-                  value={notes}
-                  onChangeText={setNotes}
-                  placeholder="Broker contact, claims helpline, policy notes..."
-                  placeholderTextColor="#94A3B8"
-                  multiline
-                  numberOfLines={3}
-                  textAlignVertical="top"
-                />
-              </View>
             </ScrollView>
 
             {/* Footer Save Button */}
