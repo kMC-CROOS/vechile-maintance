@@ -6,8 +6,11 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
+import { BackButton } from '@/components/ui/BackButton';
 import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
 import { MonoText } from '@/components/ui/MonoText';
@@ -64,16 +67,20 @@ export default function RemindersScreen() {
   const totalCount = overdueList.length + dueSoonList.length + upcomingList.length;
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Vehicle Reminders</Text>
-        <TouchableOpacity
-          style={styles.docsBtn}
-          activeOpacity={0.7}
-          onPress={() => router.push('/documents' as any)}>
-          <Text style={styles.docsBtnText}>📁 Documents</Text>
-        </TouchableOpacity>
-      </View>
+    <SafeAreaView style={styles.safeContainer} edges={['top']}>
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <BackButton style={styles.backButton} />
+          <View style={styles.headerRow}>
+            <Text style={styles.title}>Vehicle Reminders</Text>
+            <TouchableOpacity
+              style={styles.docsBtn}
+              activeOpacity={0.7}
+              onPress={() => router.push('/documents' as any)}>
+              <Text style={styles.docsBtnText}>📁 Documents</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
 
       {/* Category Chips */}
       <View style={styles.chipRow}>
@@ -164,24 +171,36 @@ export default function RemindersScreen() {
         />
       </StateView>
     </View>
+  </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeContainer: {
+    flex: 1,
+    backgroundColor: Colors.surface,
+  },
   container: {
     flex: 1,
     backgroundColor: Colors.background,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: Spacing.screenPadding,
-    paddingTop: 50,
+    paddingTop: Platform.OS === 'ios' ? 8 : 12,
     paddingBottom: Spacing.p16,
     backgroundColor: Colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
+  },
+  backButton: {
+    alignSelf: 'flex-start',
+    marginBottom: 4,
+    marginLeft: -4,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   title: {
     fontSize: FontSizes.xl,

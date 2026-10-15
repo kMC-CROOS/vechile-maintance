@@ -22,31 +22,50 @@ export function getVehicleImageSource(
   category?: string | null,
   photoUrl?: string | null
 ): ImageSourcePropType {
-  if (photoUrl && (photoUrl.startsWith('http://') || photoUrl.startsWith('https://') || photoUrl.startsWith('file://'))) {
-    return { uri: photoUrl };
-  }
-
   const normalized = (category || 'car')
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9]/g, '_');
 
-  if (normalized.includes('bike') || normalized.includes('motorcycle') || normalized.includes('scooter')) {
+  if (
+    normalized.includes('bike') ||
+    normalized.includes('motorcycle') ||
+    normalized.includes('motor_bike') ||
+    normalized.includes('scooter')
+  ) {
     return VEHICLE_IMAGES.bike;
   }
-  if (normalized.includes('three') || normalized.includes('tuk') || normalized.includes('auto')) {
+  if (
+    normalized.includes('three') ||
+    normalized.includes('tuk') ||
+    normalized.includes('auto') ||
+    normalized.includes('rickshaw') ||
+    normalized.includes('wheeler')
+  ) {
     return VEHICLE_IMAGES.three_wheeler;
   }
-  if (normalized.includes('van') || normalized.includes('suv')) {
+  if (
+    normalized.includes('van') ||
+    normalized.includes('suv') ||
+    normalized.includes('minibus')
+  ) {
     return VEHICLE_IMAGES.van;
   }
-  if (normalized.includes('bus')) {
+  if (normalized.includes('bus') || normalized.includes('coach')) {
     return VEHICLE_IMAGES.bus;
   }
-  if (normalized.includes('truck') || normalized.includes('lorry')) {
+  if (
+    normalized.includes('truck') ||
+    normalized.includes('lorry') ||
+    normalized.includes('flatbed')
+  ) {
     return VEHICLE_IMAGES.truck;
   }
-  if (normalized.includes('heavy')) {
+  if (
+    normalized.includes('heavy') ||
+    normalized.includes('tipper') ||
+    normalized.includes('trailer')
+  ) {
     return VEHICLE_IMAGES.heavy_duty;
   }
   if (normalized.includes('tractor')) {

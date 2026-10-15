@@ -21,6 +21,7 @@ import { apiFetch } from '@/services/api';
 import { getSetting, setSetting } from '@/services/storage';
 import { PhoneNumberInput } from '@/components/ui/PhoneNumberInput';
 import { isValidE164 } from '@/utils/phone';
+import { BackButton } from '@/components/ui/BackButton';
 
 // --- SVGs & Icons ---
 const ChevronRightIcon = ({ color = '#94A3B8' }: { color?: string }) => (
@@ -362,19 +363,10 @@ export default function SettingsScreen() {
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       {/* Top Header */}
       <View style={[styles.header, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
-        <TouchableOpacity
+        <BackButton
           style={styles.backBtn}
-          onPress={(e) => {
-            e.preventDefault?.();
-            if (router.canGoBack()) {
-              router.back();
-            } else {
-              router.replace('/(tabs)' as any);
-            }
-          }}
-          activeOpacity={0.7}>
-          <Text style={[styles.backLink, { color: theme.primaryBlue }]}>← Back</Text>
-        </TouchableOpacity>
+          fallbackRoute="/(tabs)"
+        />
         <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>Settings</Text>
         <View style={{ width: 60 }} />
       </View>
@@ -476,7 +468,7 @@ export default function SettingsScreen() {
               </View>
               <View style={styles.rowContent}>
                 <Text style={[styles.rowLabel, { color: theme.textPrimary }]}>Tax, Insurance & Warranty Documents</Text>
-                <Text style={[styles.rowSub, { color: theme.textMuted }]}>View policies, PUC certificates and records</Text>
+                <Text style={[styles.rowSub, { color: theme.textMuted }]}>View policies, Emission Test Certificates and records</Text>
               </View>
               <ChevronRightIcon color={theme.textFaint} />
             </TouchableOpacity>

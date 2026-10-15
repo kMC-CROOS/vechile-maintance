@@ -1,8 +1,9 @@
 import * as ImagePicker from 'expo-image-picker';
 import { apiFetch } from '@/services/api';
-import { validDocumentDate, validNonNegativeNumber } from '@/utils/dashboardValidation';
-import React, { useRef, useState } from 'react';
+import { validDocumentDate, validNonNegativeNumber, getLocalTodayString } from '@/utils/dashboardValidation';
+import React, { useRef, useState, useEffect } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Modal,
@@ -17,6 +18,8 @@ import {
   View,
 } from 'react-native';
 import Svg, { Path, Rect } from 'react-native-svg';
+import { useVehicle } from '@/context/VehicleContext';
+import { dataCache } from '@/services/dataCache';
 
 interface AddDocumentModalProps {
   visible: boolean;
@@ -25,6 +28,18 @@ interface AddDocumentModalProps {
   initialCategory?: string;
   vehicleId?: number | string;
 }
+
+const BackIcon = () => (
+  <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+    <Path
+      d="M19 12H5M5 12L12 19M5 12L12 5"
+      stroke="#1E293B"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </Svg>
+);
 
 const DOCUMENT_TYPES = ['Insurance', 'Warranty', 'Revenue Licence / Tax'] as const;
 
@@ -70,7 +85,9 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
   initialCategory,
   vehicleId,
 }) => {
-  const today = new Date().toISOString().split('T')[0];
+  const { activeVehicle, reloadVehicles } = useVehicle();
+  const targetVehicleId = vehicleId || activeVehicle?.id;
+  const today = getLocalTodayString();
 
   // Default initial values
   const [docType, setDocType] = useState<string>(initialCategory || 'Insurance');
@@ -90,6 +107,23 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
   const [loading, setLoading] = useState(false);
   const saving = useRef(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (visible) {
+      setDocType(initialCategory || 'Insurance');
+      setAmountPaid('0');
+      setDocNumber('');
+      setIssueDate(getLocalTodayString());
+      setExpiryDate('');
+      setExpiryNotification(true);
+      setAttachedFileInfo(null);
+      setSaveError(null);
+      setFieldErrors({});
+      saving.current = false;
+      setLoading(false);
+    }
+  }, [visible, initialCategory]);
 
   // Calendar Modal State
   const [calendarTarget, setCalendarTarget] = useState<'issue' | 'expiry' | null>(null);
@@ -229,12 +263,46 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
 
     if (saving.current) return;
     setSaveError(null);
-    if (!vehicleId) { setSaveError('Select a vehicle first.'); return; }
-    if (!docTitle.trim()) { setSaveError('Enter a document title.'); return; }
-    if (!validDocumentDate(issueDate) || !validDocumentDate(expiryDate) || expiryDate < issueDate) {
-      setSaveError('Choose valid dates. Expiry must be on or after the issue date.'); return;
+
+    const errors: Record<string, string> = {};
+
+    if (!docTitle.trim()) {
+      errors.docTitle = 'Document title is required.';
     }
-    if (docType === 'Revenue Licence / Tax' && !validNonNegativeNumber(amountPaid)) { setSaveError('Enter a valid amount paid.'); return; }
+
+    if (issueDate && !validDocumentDate(issueDate)) {
+      errors.issueDate = 'Issue date must be in YYYY-MM-DD format.';
+    }
+
+    if (!expiryDate || !expiryDate.trim()) {
+      errors.expiryDate = 'Expiry date is required.';
+    } else if (!validDocumentDate(expiryDate)) {
+      errors.expiryDate = 'Expiry date must be in YYYY-MM-DD format.';
+    } else if (issueDate && expiryDate < issueDate) {
+      errors.expiryDate = 'Expiry date cannot be before issue date.';
+    }
+
+    if (docType === 'Revenue Licence / Tax' && amountPaid && amountPaid.trim()) {
+      if (!validNonNegativeNumber(amountPaid)) {
+        errors.amountPaid = 'Enter a valid amount paid.';
+      }
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      const firstMsg = Object.values(errors)[0];
+      setSaveError(firstMsg);
+      Alert.alert('Validation Error', firstMsg);
+      return;
+    }
+
+    if (!targetVehicleId) {
+      const msg = 'No vehicle selected. Please select a vehicle first.';
+      setSaveError(msg);
+      Alert.alert('Error', msg);
+      return;
+    }
+
     saving.current = true;
     setLoading(true);
 
@@ -247,7 +315,7 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
 
     const newDocRecord = {
       id: Date.now(),
-      vehicle_id: typeof vehicleId === 'string' ? parseInt(vehicleId, 10) || 1 : vehicleId,
+      vehicle_id: typeof targetVehicleId === 'string' ? parseInt(targetVehicleId, 10) || 1 : targetVehicleId,
       category: docCategory,
       title: docTitle.trim(),
       doc_type: docType,
@@ -256,46 +324,108 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
       valid_until: expiryDate,
       expiry_date: expiryDate,
       expiryNotification,
-
       document_path: attachedFileInfo?.uri,
       fileName: attachedFileInfo ? `${attachedFileInfo.name} (${attachedFileInfo.sizeFormatted})` : undefined,
-
       created_at: new Date().toISOString(),
     };
 
     try {
-      const body = new FormData();
-      body.append(docCategory === 'tax' ? 'valid_until' : 'expiry_date', expiryDate);
-      if (docCategory === 'tax') body.append('amount_paid', amountPaid);
-      body.append('start_date', issueDate);
-      body.append('policy_number', docNumber.trim());
-      body.append('reminder_days_before', expiryNotification ? '14' : '0');
+      let saved: any;
       if (attachedFileInfo?.uri) {
+        const body = new FormData();
+        body.append(docCategory === 'tax' ? 'valid_until' : 'expiry_date', expiryDate);
+        if (docCategory === 'tax') body.append('amount_paid', amountPaid || '0');
+        body.append('start_date', issueDate);
+        if (docType === 'Insurance') {
+          body.append('provider', docTitle.trim() || 'Insurance Policy');
+          body.append('policy_number', docNumber.trim());
+        }
+        body.append('reminder_days_before', expiryNotification ? '14' : '30');
+
         if (Platform.OS === 'web') {
           const blob = await (await fetch(attachedFileInfo.uri)).blob();
-          if (blob.size > 10 * 1024 * 1024 || !['image/jpeg', 'image/png', 'application/pdf'].includes(blob.type)) throw new Error('Attach a JPG, PNG or PDF smaller than 10 MB.');
+          if (blob.size > 10 * 1024 * 1024 || !['image/jpeg', 'image/png', 'application/pdf'].includes(blob.type)) {
+            throw new Error('Attach a JPG, PNG or PDF smaller than 10 MB.');
+          }
           body.append('document', blob, attachedFileInfo.name);
         } else {
-          body.append('document', { uri: attachedFileInfo.uri, name: attachedFileInfo.name, type: /\.png$/i.test(attachedFileInfo.name) ? 'image/png' : 'image/jpeg' } as any);
+          body.append('document', {
+            uri: attachedFileInfo.uri,
+            name: attachedFileInfo.name,
+            type: /\.png$/i.test(attachedFileInfo.name) ? 'image/png' : 'image/jpeg',
+          } as any);
         }
+
+        saved = await apiFetch<any>(`/vehicles/${targetVehicleId}/${docCategory}`, {
+          method: 'POST',
+          body,
+          isFormData: true,
+        });
+      } else {
+        let jsonPayload: any;
+        if (docCategory === 'tax') {
+          jsonPayload = {
+            valid_until: expiryDate,
+            amount_paid: Number(amountPaid) || 0,
+            start_date: issueDate,
+          };
+        } else if (docCategory === 'insurance') {
+          jsonPayload = {
+            provider: docTitle.trim() || 'Insurance Policy',
+            policy_number: docNumber.trim() || undefined,
+            start_date: issueDate,
+            expiry_date: expiryDate,
+            reminder_days_before: expiryNotification ? 14 : 30,
+          };
+        } else {
+          jsonPayload = {
+            start_date: issueDate,
+            expiry_date: expiryDate,
+            reminder_days_before: expiryNotification ? 14 : 30,
+          };
+        }
+
+        saved = await apiFetch<any>(`/vehicles/${targetVehicleId}/${docCategory}`, {
+          method: 'POST',
+          body: jsonPayload,
+        });
       }
-      const saved = await apiFetch<any>(`/vehicles/${vehicleId}/${docCategory}`, { method: 'POST', body, isFormData: true });
+
+      console.log(`[AddDocumentModal] Successfully saved ${docCategory}:`, saved);
       Object.assign(newDocRecord, saved);
 
-      // 3. Trigger parent callback
-      if (onSave) {
-        await onSave(newDocRecord);
+      // Invalidate caches
+      dataCache.clear();
+      if (typeof window !== 'undefined' && window.localStorage) {
+        try {
+          window.localStorage.removeItem('vehiclecare_documents_records');
+          window.localStorage.removeItem('vehiclecare_expenses_list');
+          window.localStorage.removeItem('vehiclecare_service_records_list');
+        } catch {}
       }
 
-      Alert.alert(
-        'Document Saved',
-        `"${docTitle}" has been saved successfully.${
-          ''
-        }`
-      );
+      if (reloadVehicles && targetVehicleId) {
+        await reloadVehicles(Number(targetVehicleId));
+      }
+
+      if (onSave) {
+        try {
+          await onSave(newDocRecord);
+        } catch (onSaveErr) {
+          console.warn('[AddDocumentModal] onSave callback warning:', onSaveErr);
+        }
+      }
+
+      // Close modal immediately (reliable on web and mobile)
       onClose();
+      Alert.alert('Document Saved', `"${docTitle}" has been saved successfully.`);
     } catch (err: any) {
-      setSaveError(err?.message || 'Failed to save document record');
+      console.error('[AddDocumentModal] Save failed:', err);
+      const serverMsg =
+        err?.message ||
+        (err?.errors ? Object.values(err.errors).flat().join(' ') : 'Failed to save document record.');
+      setSaveError(serverMsg);
+      Alert.alert('Save Failed', serverMsg);
     } finally {
       saving.current = false;
       setLoading(false);
@@ -315,17 +445,26 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             {/* Header */}
             <View style={styles.header}>
-              <View>
-                <Text style={styles.title}>Add Document</Text>
-                <Text style={styles.subtitle}>Store vehicle certificates, policies, and permits</Text>
+              <View style={styles.headerLeft}>
+                <TouchableOpacity
+                  style={styles.backBtn}
+                  onPress={onClose}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Go back"
+                  accessibilityRole="button">
+                  <BackIcon />
+                </TouchableOpacity>
+                <View style={styles.titleContainer}>
+                  <Text style={styles.title}>Add Document</Text>
+                  <Text style={styles.subtitle}>Store vehicle certificates, policies, and permits</Text>
+                </View>
               </View>
               <TouchableOpacity
                 style={styles.closeBtn}
-                onPress={(e) => {
-                  e?.preventDefault?.();
-                  onClose();
-                }}
-                activeOpacity={0.7}>
+                onPress={onClose}
+                activeOpacity={0.7}
+                accessibilityLabel="Close"
+                accessibilityRole="button">
                 <CloseIcon />
               </TouchableOpacity>
             </View>
@@ -334,7 +473,13 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
               style={styles.scroll}
               contentContainerStyle={styles.scrollContent}
               keyboardShouldPersistTaps="handled">
-            {saveError ? <Text accessibilityRole="alert" style={{ color: '#B91C1C', margin: 12 }}>{saveError}</Text> : null}
+            {saveError ? (
+              <View style={styles.errorBanner}>
+                <Text accessibilityRole="alert" style={styles.errorBannerText}>
+                  {saveError}
+                </Text>
+              </View>
+            ) : null}
               {/* Document Type Pills */}
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>Document Type</Text>
@@ -348,7 +493,9 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
                         onPress={(e) => {
                           e?.preventDefault?.();
                           setDocType(type);
-
+                          if (fieldErrors.docTitle) {
+                            setFieldErrors((prev) => ({ ...prev, docTitle: undefined as any }));
+                          }
                         }}
                         activeOpacity={0.75}>
                         <Text style={[styles.pillText, active && styles.pillTextActive]}>
@@ -360,63 +507,96 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
                 </View>
               </View>
 
-              {docType === 'Insurance' ? <View style={styles.inputGroup}>
-                <Text style={styles.label}>Policy Number</Text>
-                <TextInput style={styles.input} value={docNumber} onChangeText={setDocNumber} maxLength={100} placeholder="Policy number" />
-              </View> : null}
-              {docType === 'Revenue Licence / Tax' ? <View style={styles.inputGroup}>
-                <Text style={styles.label}>Amount Paid</Text>
-                <TextInput style={styles.input} value={amountPaid} onChangeText={setAmountPaid} keyboardType="decimal-pad" />
-              </View> : null}
+              {docType === 'Insurance' ? (
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Policy Number</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={docNumber}
+                    onChangeText={setDocNumber}
+                    maxLength={100}
+                    placeholder="Policy number"
+                  />
+                </View>
+              ) : null}
+
+              {docType === 'Revenue Licence / Tax' ? (
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Amount Paid (LKR)</Text>
+                  <TextInput
+                    style={[styles.input, fieldErrors.amountPaid ? styles.inputError : undefined]}
+                    value={amountPaid}
+                    onChangeText={(val) => {
+                      setAmountPaid(val);
+                      if (fieldErrors.amountPaid) {
+                        setFieldErrors((prev) => ({ ...prev, amountPaid: undefined as any }));
+                      }
+                    }}
+                    keyboardType="decimal-pad"
+                  />
+                  {fieldErrors.amountPaid ? (
+                    <Text style={styles.fieldErrorText}>{fieldErrors.amountPaid}</Text>
+                  ) : null}
+                </View>
+              ) : null}
 
               {/* Dates */}
               <View style={styles.row}>
                 <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
                   <Text style={styles.label}>Issue Date</Text>
                   <TouchableOpacity
-                    style={styles.dateWrapper}
+                    style={[styles.dateWrapper, fieldErrors.issueDate ? styles.inputError : undefined]}
                     activeOpacity={0.75}
                     onPress={(e) => openCalendar('issue', e)}>
                     <Text style={styles.dateValueText}>{issueDate || today}</Text>
                     <CalendarIcon />
                   </TouchableOpacity>
+                  {fieldErrors.issueDate ? (
+                    <Text style={styles.fieldErrorText}>{fieldErrors.issueDate}</Text>
+                  ) : null}
                 </View>
 
                 <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
-                  <Text style={styles.label}>Expiry Date</Text>
+                  <Text style={styles.label}>Expiry Date *</Text>
                   <TouchableOpacity
-                    style={styles.dateWrapper}
+                    style={[styles.dateWrapper, fieldErrors.expiryDate ? styles.inputError : undefined]}
                     activeOpacity={0.75}
                     onPress={(e) => openCalendar('expiry', e)}>
-                    <Text style={styles.dateValueText}>{expiryDate || 'Select date'}</Text>
+                    <Text style={[styles.dateValueText, !expiryDate && { color: '#94A3B8' }]}>
+                      {expiryDate || 'Select date'}
+                    </Text>
                     <CalendarIcon />
                   </TouchableOpacity>
+                  {fieldErrors.expiryDate ? (
+                    <Text style={styles.fieldErrorText}>{fieldErrors.expiryDate}</Text>
+                  ) : null}
                 </View>
               </View>
 
               {/* Dashboard reminders */}
-              {docType !== 'Revenue Licence / Tax' ? <View style={styles.card}>
-                <Text style={styles.cardTitle}>Expiry Reminder Settings</Text>
-                <View style={styles.toggleRow}>
-                  <View style={styles.toggleTextWrapper}>
-                    <Text style={styles.toggleTitle}>Remind 14 days before expiry</Text>
-                    <Text style={styles.toggleSubtext}>
-                      Show on the dashboard 14 days before expiry; otherwise on the expiry date.
-                    </Text>
+              {docType !== 'Revenue Licence / Tax' ? (
+                <View style={styles.card}>
+                  <Text style={styles.cardTitle}>Expiry Reminder Settings</Text>
+                  <View style={styles.toggleRow}>
+                    <View style={styles.toggleTextWrapper}>
+                      <Text style={styles.toggleTitle}>Remind 14 days before expiry</Text>
+                      <Text style={styles.toggleSubtext}>
+                        Show on the dashboard 14 days before expiry; otherwise on the expiry date.
+                      </Text>
+                    </View>
+                    <Switch
+                      value={expiryNotification}
+                      onValueChange={setExpiryNotification}
+                      trackColor={{ false: '#CBD5E1', true: '#BFDBFE' }}
+                      thumbColor={expiryNotification ? '#2563EB' : '#FFFFFF'}
+                    />
                   </View>
-                  <Switch
-                    value={expiryNotification}
-                    onValueChange={setExpiryNotification}
-                    trackColor={{ false: '#CBD5E1', true: '#BFDBFE' }}
-                    thumbColor={expiryNotification ? '#2563EB' : '#FFFFFF'}
-                  />
                 </View>
-
-              </View> : null}
+              ) : null}
 
               {/* File Attachment Dropzone */}
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>Document Attachment</Text>
+                <Text style={styles.cardTitle}>Document Attachment (Optional)</Text>
 
                 {/* Hidden HTML input for web */}
                 {Platform.OS === 'web' && (
@@ -459,9 +639,14 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({
                 onPress={handleSave}
                 disabled={loading}
                 activeOpacity={0.85}>
-                <Text style={styles.saveBtnText}>
-                  {loading ? 'Saving Document...' : 'Save Document'}
-                </Text>
+                {loading ? (
+                  <View style={styles.btnLoadingRow}>
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                    <Text style={[styles.saveBtnText, { marginLeft: 8 }]}>Saving Document...</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.saveBtnText}>Save Document</Text>
+                )}
               </TouchableOpacity>
             </View>
           </KeyboardAvoidingView>
@@ -583,6 +768,24 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#E2E8F0',
   },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+    marginRight: 8,
+  },
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  titleContainer: {
+    flex: 1,
+  },
   title: {
     fontSize: 18,
     fontWeight: '700',
@@ -598,6 +801,34 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 18,
     backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  errorBanner: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#F87171',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 4,
+  },
+  errorBannerText: {
+    color: '#991B1B',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  fieldErrorText: {
+    color: '#DC2626',
+    fontSize: 12,
+    marginTop: 4,
+    fontWeight: '500',
+  },
+  inputError: {
+    borderColor: '#DC2626',
+    backgroundColor: '#FEF2F2',
+  },
+  btnLoadingRow: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },

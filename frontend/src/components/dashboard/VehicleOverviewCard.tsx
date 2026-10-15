@@ -60,7 +60,7 @@ export const VehicleOverviewCard: React.FC<VehicleOverviewCardProps> = ({
   const [cardWidth, setCardWidth] = useState(0);
   const wide = cardWidth >= 600;
   const heroHeight = wide ? 320 : 240;
-  const imageSource = getVehicleImageSource(category, photoUrl);
+  const imageSource = getVehicleImageSource(category);
 
   const fullModelText = modelDetails || (registrationNumber ? `${category} • ${registrationNumber}` : category);
 
@@ -130,7 +130,7 @@ export const VehicleOverviewCard: React.FC<VehicleOverviewCardProps> = ({
       
       {/* Animated Vehicle Driving-in Image Overlay */}
       <Animated.View
-        key={`${vehicleName}-${category}-${photoUrl}`}
+        key={`${vehicleName}-${category}`}
         entering={SlideInRight.duration(700).springify().damping(14)}
         style={[styles.imageWrapper, wide && { width: '49%', right: '15%', height: '84%' }]}
         pointerEvents="none">

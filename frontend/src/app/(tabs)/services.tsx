@@ -294,7 +294,7 @@ export default function ServicesScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      fetchServices(false);
+      fetchServices(true);
     }, [fetchServices])
   );
 

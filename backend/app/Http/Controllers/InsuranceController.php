@@ -16,6 +16,13 @@ class InsuranceController extends Controller
             abort(403, 'Unauthorized');
         }
 
+        if (!$request->has('start_date') && $request->has('issue_date')) {
+            $request->merge(['start_date' => $request->input('issue_date')]);
+        }
+        if (!$request->has('expiry_date') && $request->has('valid_until')) {
+            $request->merge(['expiry_date' => $request->input('valid_until')]);
+        }
+
         $validated = $request->validate([
             'provider' => 'nullable|string',
             'policy_number' => 'nullable|string',
@@ -48,6 +55,6 @@ class InsuranceController extends Controller
             $insuranceData
         );
 
-        return response()->json($insurance);
+        return response()->json($insurance, 201);
     }
 }

@@ -15,7 +15,7 @@ return new class extends Migration
             $table->string('brand');
             $table->string('model');
             $table->string('registration_number');
-            $table->string('fuel_type');
+            $table->string('fuel_type')->nullable();
             $table->string('transmission');
             $table->decimal('current_odometer', 12, 2)->default(0);
             $table->string('engine_capacity')->nullable();

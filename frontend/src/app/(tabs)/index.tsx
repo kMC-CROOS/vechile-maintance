@@ -300,8 +300,9 @@ export default function DashboardScreen() {
             <Animated.View entering={FadeInUp.duration(300).delay(180)}>
               <StatusGrid
                 activeVehicle={displayVehicle.raw}
-                onAnalyticsPress={() => router.push('/(tabs)/analytics' as any)}
-                onAlertPress={() => setDocModalVisible(true)}
+                onAnalyticsPress={() => router.push({ pathname: '/(tabs)/analytics', params: { from: 'home' } } as any)}
+                onExpensesPress={() => router.push({ pathname: '/(tabs)/expenses', params: { from: 'home' } } as any)}
+                onAlertPress={() => router.push({ pathname: '/(tabs)/reminders', params: { from: 'home' } } as any)}
                 onNextServicePress={() => setServiceModalVisible(true)}
                 onInsurancePress={() => setDocModalVisible(true)}
                 onPucPress={() => setDocModalVisible(true)}
@@ -319,6 +320,7 @@ export default function DashboardScreen() {
               visible={serviceModalVisible}
               onClose={() => setServiceModalVisible(false)}
               currentOdometer={displayVehicle.odometer}
+              vehicleId={contextVehicle?.id}
               onSave={(data) => {
                 if (data?.odometer && data.odometer > displayVehicle.odometer && contextVehicle) {
                   setContextVehicle({ ...contextVehicle, current_odometer: data.odometer });
@@ -331,6 +333,7 @@ export default function DashboardScreen() {
             <AddExpenseModal
               visible={expenseModalVisible}
               onClose={() => setExpenseModalVisible(false)}
+              vehicleId={contextVehicle?.id || (displayVehicle?.id ? Number(displayVehicle.id) : undefined)}
               onSave={(_data) => {
                 dataCache.clear();
                 setDocRefreshKey((k) => k + 1);
@@ -340,7 +343,7 @@ export default function DashboardScreen() {
             <AddDocumentModal
               visible={docModalVisible}
               onClose={() => setDocModalVisible(false)}
-              vehicleId={displayVehicle.id}
+              vehicleId={contextVehicle?.id || (displayVehicle?.id ? Number(displayVehicle.id) : undefined)}
               onSave={(_doc) => {
                 dataCache.clear();
                 setDocRefreshKey((k) => k + 1);

@@ -1,10 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
-  Animated,
-  Image,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   SafeAreaView,
   ScrollView,
@@ -13,6 +10,7 @@ import {
   TouchableOpacity,
   View,
   ActivityIndicator,
+  useWindowDimensions,
 } from 'react-native';
 import { useNavigation, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -22,19 +20,40 @@ import { VehicleCategoryCardsAnimated } from '@/components/ui/VehicleCategoryCar
 import { FuelTypeSelectorAnimated } from '@/components/ui/FuelTypeSelectorAnimated';
 import { CollapsibleFormSection } from '@/components/ui/CollapsibleFormSection';
 import { PremiumInput } from '@/components/ui/PremiumInput';
-import { ScanDocumentCard } from '@/components/ui/ScanDocumentCard';
 import { AttachmentCardTile } from '@/components/ui/AttachmentCardTile';
 
-import { DocumentScannerModal } from '@/components/DocumentScanner/DocumentScannerModal';
-import { DocumentReviewModal } from '@/components/DocumentReview/DocumentReviewModal';
-import { ExtractionResult, SriLankaVehicleRegistrationData } from '@/types/registrationDocument.types';
 import { useVehicle, Vehicle } from '@/context/VehicleContext';
 import { useAuth } from '@/context/AuthContext';
 import { apiFetch } from '@/services/api';
 
-// Available vehicle types
 const VEHICLE_TYPES = ['Car', 'Bike', 'Three-Wheeler', 'Van / SUV', 'Bus', 'Truck', 'Heavy Duty', 'Tractor'] as const;
 type VehicleType = (typeof VEHICLE_TYPES)[number];
+type FormSectionId = 'core' | 'specs' | 'dims' | 'owner' | 'tax' | 'notes';
+const SKIPPABLE_SECTIONS: FormSectionId[] = ['specs', 'dims', 'owner', 'tax', 'notes'];
+
+const parseOptionalInt = (raw: string): number | null => {
+  const match = raw.trim().match(/-?\d+/);
+  if (!match) return null;
+  const parsed = parseInt(match[0], 10);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const parseOptionalDate = (raw: string): string | null => {
+  const value = raw.trim();
+  if (!value) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) return null;
+  return new Date(timestamp).toISOString().slice(0, 10);
+};
+
+const guessUploadName = (mimeType: string): string => {
+  if (mimeType.includes('png')) return 'vehicle.png';
+  if (mimeType.includes('webp')) return 'vehicle.webp';
+  if (mimeType.includes('gif')) return 'vehicle.gif';
+  if (mimeType.includes('pdf')) return 'vehicle.pdf';
+  return 'vehicle.jpg';
+};
 
 // --- SVG Icons ---
 const BackIcon = ({ color = '#111827', size = 22 }: { color?: string; size?: number }) => (
@@ -64,6 +83,7 @@ const ShieldCheckIcon = ({ color = '#16A34A', size = 18 }: { color?: string; siz
 );
 
 export default function AddVehicleScreen() {
+  const { width } = useWindowDimensions();
   const router = useRouter();
   const navigation = useNavigation<any>();
   const { vehicles, reloadVehicles } = useVehicle();
@@ -94,7 +114,7 @@ export default function AddVehicleScreen() {
   const [rmvClassOfVehicle, setRmvClassOfVehicle] = useState('');
   const [rmvTaxationClass, setRmvTaxationClass] = useState('');
   const [rmvStatusWhenRegistered, setRmvStatusWhenRegistered] = useState('');
-  const [rmvFuelType, setRmvFuelType] = useState('');
+  const [rmvFuelType, setRmvFuelType] = useState('Petrol');
   const [rmvMake, setRmvMake] = useState('');
   const [rmvCountryOfOrigin, setRmvCountryOfOrigin] = useState('');
   const [rmvModel, setRmvModel] = useState('');
@@ -117,20 +137,37 @@ export default function AddVehicleScreen() {
   // 4. Photo Attachment & Scanning Modal State
   const [vehiclePhotoUri, setVehiclePhotoUri] = useState<string | null>(null);
   const [rcDocumentUri, setRcDocumentUri] = useState<string | null>(null);
-  const [isScanning, setIsScanning] = useState(false);
-  const [scannerModalVisible, setScannerModalVisible] = useState(false);
-  const [reviewModalVisible, setReviewModalVisible] = useState(false);
-  const [extractedResult, setExtractedResult] = useState<ExtractionResult | null>(null);
-  const [scannedImageUri, setScannedImageUri] = useState<string | null>(null);
-  const [autoFilledCount, setAutoFilledCount] = useState<number | null>(null);
 
   // 5. Form Validation Error State
   const [fieldErrors, setFieldErrors] = useState<{
     regNo?: string;
     make?: string;
+    model?: string;
     year?: string;
     odometer?: string;
   }>({});
+
+  const [expandedSection, setExpandedSection] = useState<FormSectionId | null>('core');
+  const [acknowledgedComplete, setAcknowledgedComplete] = useState<Record<FormSectionId, boolean>>({
+    core: false,
+    specs: false,
+    dims: false,
+    owner: false,
+    tax: false,
+    notes: false,
+  });
+
+  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollOffsetRef = useRef(0);
+  const sectionRefs = useRef<Record<FormSectionId | 'save', View | null>>({
+    core: null,
+    specs: null,
+    dims: null,
+    owner: null,
+    tax: null,
+    notes: null,
+    save: null,
+  });
 
   /**
    * Calculate current Step for Progress Header
@@ -147,10 +184,11 @@ export default function AddVehicleScreen() {
    * Form Validation Handler
    */
   const validateForm = (): boolean => {
-    const errors: { regNo?: string; make?: string; year?: string; odometer?: string } = {};
+    const errors: { regNo?: string; make?: string; model?: string; year?: string; odometer?: string } = {};
 
     const finalRegNo = (rmvRegNo || registrationNumber).trim();
     const finalMake = (rmvMake || brand).trim();
+    const finalModel = (rmvModel || model).trim();
 
     if (!finalRegNo) {
       errors.regNo = 'Registration No. is required (e.g. WP BIKE-8849)';
@@ -162,6 +200,10 @@ export default function AddVehicleScreen() {
       errors.make = 'Make is required (e.g. Royal Enfield, Honda)';
     } else if (finalMake.length < 2) {
       errors.make = 'Make must be at least 2 characters';
+    }
+
+    if (!finalModel) {
+      errors.model = 'Model is required (e.g. Himalayan)';
     }
 
     const odoTrimmed = odometer.trim();
@@ -191,106 +233,6 @@ export default function AddVehicleScreen() {
    */
   const handleCategorySelect = (category: VehicleType) => {
     setVehicleType(category);
-  };
-
-  /**
-   * Triggers the OCR Document Scanner Modal flow.
-   */
-  const handleSmartDocumentScan = () => {
-    setScannerModalVisible(true);
-  };
-
-  /**
-   * Called when DocumentScannerModal completes OCR processing.
-   */
-  const handleExtractionComplete = (result: ExtractionResult) => {
-    setScannerModalVisible(false);
-    setExtractedResult(result);
-    setScannedImageUri(result.imageUri || null);
-    setReviewModalVisible(true);
-  };
-
-  /**
-   * Called when user confirms & auto-fills extracted fields from DocumentReviewModal.
-   */
-  const handleConfirmAutoFill = (reviewedResult: ExtractionResult) => {
-    setReviewModalVisible(false);
-    let count = 0;
-
-    const data: Partial<SriLankaVehicleRegistrationData> = {};
-    if (reviewedResult.fields) {
-      Object.keys(reviewedResult.fields).forEach((key) => {
-        const f = reviewedResult.fields[key as keyof typeof reviewedResult.fields];
-        if (f && f.value) {
-          (data as any)[key] = f.value;
-          count++;
-        }
-      });
-    }
-
-    if (reviewedResult.mappedCategory) {
-      setVehicleType(reviewedResult.mappedCategory as VehicleType);
-    }
-
-    if (reviewedResult.mappedFuelType) {
-      setFuelType(reviewedResult.mappedFuelType);
-      setRmvFuelType(reviewedResult.mappedFuelType);
-    } else if (data.fuelType) {
-      setRmvFuelType(data.fuelType);
-    }
-
-    if (data.registrationNumber) {
-      setRmvRegNo(data.registrationNumber);
-      setRegistrationNumber(data.registrationNumber);
-    }
-    if (data.chassisNumber) setRmvChassisNo(data.chassisNumber);
-    if (data.engineNumber) setRmvEngineNo(data.engineNumber);
-
-    let ownerDetails = '';
-    if (data.currentOwnerName) ownerDetails += data.currentOwnerName;
-    if (data.currentOwnerAddress) ownerDetails += (ownerDetails ? ', ' : '') + data.currentOwnerAddress;
-    if (data.nicOrIdNumber) ownerDetails += (ownerDetails ? ' (NIC: ' : 'NIC: ') + data.nicOrIdNumber + (ownerDetails ? ')' : '');
-    if (ownerDetails) setRmvOwnerDetails(ownerDetails);
-
-    if (data.absoluteOwnerName) {
-      let absStr = data.absoluteOwnerName;
-      if (data.absoluteOwnerAddress) absStr += ', ' + data.absoluteOwnerAddress;
-      setRmvAbsoluteOwner(absStr);
-    }
-
-    if (data.cylinderCapacity) setRmvCylinderCapacity(data.cylinderCapacity);
-    if (data.vehicleClass) setRmvClassOfVehicle(data.vehicleClass);
-    if (data.taxationClass) setRmvTaxationClass(data.taxationClass);
-    if (data.statusWhenRegistered) setRmvStatusWhenRegistered(data.statusWhenRegistered);
-    if (data.make) { setRmvMake(data.make); setBrand(data.make); }
-    if (data.countryOfOrigin) setRmvCountryOfOrigin(data.countryOfOrigin);
-    if (data.model) { setRmvModel(data.model); setModel(data.model); }
-    if (data.manufacturerDescription) setRmvMfrDescription(data.manufacturerDescription);
-    if (data.wheelBase) setRmvWheelBase(data.wheelBase);
-    if (data.overhang) setRmvOverhang(data.overhang);
-    if (data.bodyType) setRmvBodyType(data.bodyType);
-    if (data.yearOfManufacture) setRmvYearOfMfg(data.yearOfManufacture);
-    if (data.colour) setRmvColour(data.colour);
-    if (data.previousOwnerCount) setRmvPreviousOwners(data.previousOwnerCount);
-    if (data.seatingCapacity) setRmvSeatingCapacity(data.seatingCapacity);
-    if (data.grossWeight) setRmvWeight(data.grossWeight);
-    else if (data.unladenWeight) setRmvWeight(data.unladenWeight);
-    if (data.tyreSize) setRmvTyreSize(data.tyreSize);
-    if (data.dimensions) setRmvDimensions(data.dimensions);
-    if (data.internalHeight) setRmvInternalHeight(data.internalHeight);
-    if (data.provincialCouncil) setRmvProvincialCouncil(data.provincialCouncil);
-    if (data.dateOfFirstRegistration) setRmvDateFirstReg(data.dateOfFirstRegistration);
-    if (data.taxesPayable) setRmvTaxesPayable(data.taxesPayable);
-    if (data.conditionsSpecialNotes) setRmvConditionsNotes(data.conditionsSpecialNotes);
-
-    if (reviewedResult.imageUri) setRcDocumentUri(reviewedResult.imageUri);
-    setAutoFilledCount(count || 12);
-    setFieldErrors({});
-
-    Alert.alert(
-      '⚡ Document Auto-Filled',
-      `${count || 12} registration fields extracted from your document have been populated.`
-    );
   };
 
   /**
@@ -346,66 +288,72 @@ export default function AddVehicleScreen() {
       return;
     }
 
-    const finalModel = (model || rmvModel).trim() || 'Standard Model';
+    const finalModel = (model || rmvModel).trim();
+    if (!finalModel) {
+      Alert.alert('Validation Error', 'Model is required');
+      setFieldErrors((prev) => ({ ...prev, model: 'Model is required' }));
+      return;
+    }
     const odoNum = parseFloat(odometer.replace(/[^0-9.]/g, '')) || 0;
 
     setLoading(true);
 
     try {
-      const payload: Record<string, any> = {
+      const rawPayload: Record<string, any> = {
         type: vehicleType,
         make: rmvMake || finalBrand,
         brand: finalBrand,
         model: rmvModel || finalModel,
         registration_number: finalRegNo.toUpperCase(),
-        fuel_type: rmvFuelType || fuelType,
+        fuel_type: rmvFuelType || fuelType || 'Petrol',
         transmission: 'Manual',
         current_odometer: odoNum,
         notes: notes.trim() || null,
-
-        // Official RMV Fields
         chassis_number: rmvChassisNo.trim() || null,
         engine_number: rmvEngineNo.trim() || null,
         owner_details: rmvOwnerDetails.trim() || null,
         conditions_special_notes: rmvConditionsNotes.trim() || null,
         absolute_owner: rmvAbsoluteOwner.trim() || null,
-        cylinder_capacity: rmvCylinderCapacity.trim() ? parseInt(rmvCylinderCapacity.trim(), 10) : null,
+        cylinder_capacity: parseOptionalInt(rmvCylinderCapacity),
         vehicle_class: rmvClassOfVehicle.trim() || null,
         taxation_class: rmvTaxationClass.trim() || null,
         status_when_registered: rmvStatusWhenRegistered.trim() || null,
         country_of_origin: rmvCountryOfOrigin.trim() || null,
         manufacturer_description: rmvMfrDescription.trim() || null,
-        wheel_base: rmvWheelBase.trim() ? parseInt(rmvWheelBase.trim(), 10) : null,
-        overhang: rmvOverhang.trim() ? parseInt(rmvOverhang.trim(), 10) : null,
+        wheel_base: parseOptionalInt(rmvWheelBase),
+        overhang: parseOptionalInt(rmvOverhang),
         body_type: rmvBodyType.trim() || null,
-        year_of_manufacture: rmvYearOfMfg.trim() ? parseInt(rmvYearOfMfg.trim(), 10) : null,
+        year_of_manufacture: parseOptionalInt(rmvYearOfMfg),
         colour: rmvColour.trim() || null,
         previous_owners: rmvPreviousOwners.trim() || null,
-        seating_capacity: rmvSeatingCapacity.trim() ? parseInt(rmvSeatingCapacity.trim(), 10) : null,
-        weight_kg: rmvWeight.trim() ? parseInt(rmvWeight.trim(), 10) : null,
+        seating_capacity: parseOptionalInt(rmvSeatingCapacity),
+        weight_kg: parseOptionalInt(rmvWeight),
         tyre_size: rmvTyreSize.trim() || null,
         dimensions: rmvDimensions.trim() || null,
         internal_height: rmvInternalHeight.trim() || null,
         provincial_council: rmvProvincialCouncil.trim() || null,
-        date_of_first_registration: rmvDateFirstReg.trim() || null,
+        date_of_first_registration: parseOptionalDate(rmvDateFirstReg),
         taxes_payable: rmvTaxesPayable.trim() || null,
       };
 
+      const payload = Object.fromEntries(
+        Object.entries(rawPayload).filter(([, value]) => value !== null && value !== undefined && !(typeof value === 'number' && Number.isNaN(value)))
+      );
+
       let created: Vehicle | null = null;
-      const uploadUri = vehiclePhotoUri || rcDocumentUri;
+      const uploadUri = vehiclePhotoUri;
 
       if (uploadUri) {
         const formData = new FormData();
         Object.keys(payload).forEach((key) => {
-          if (payload[key] !== null && payload[key] !== undefined) {
-            formData.append(key, String(payload[key]));
-          }
+          formData.append(key, String(payload[key]));
         });
 
         if (Platform.OS === 'web') {
           const res = await fetch(uploadUri);
           const blob = await res.blob();
-          formData.append('photo', blob, 'vehicle.jpg');
+          const type = blob.type && blob.type !== 'application/octet-stream' ? blob.type : 'image/jpeg';
+          formData.append('photo', new File([blob], guessUploadName(type), { type }));
         } else {
           formData.append('photo', {
             uri: uploadUri,
@@ -428,30 +376,115 @@ export default function AddVehicleScreen() {
 
       await reloadVehicles(created?.id);
 
-      Alert.alert(
-        '🎉 Vehicle Profile Created!',
-        `Vehicle (${finalRegNo.toUpperCase()}) has been saved to your dashboard.`,
-        [
-          {
-            text: 'View Dashboard',
-            onPress: () => router.replace('/(tabs)' as any),
-          },
-        ]
-      );
+      if (Platform.OS === 'web') {
+        router.replace('/(tabs)' as any);
+      } else {
+        Alert.alert(
+          'Vehicle Profile Created',
+          `Vehicle (${finalRegNo.toUpperCase()}) has been saved to your dashboard.`,
+          [
+            {
+              text: 'View Dashboard',
+              onPress: () => router.replace('/(tabs)' as any),
+            },
+          ]
+        );
+      }
     } catch (err: any) {
-      const errMsg = err?.message || err?.errors?.registration_number?.[0] || 'Unable to save vehicle. Please try again.';
+      const fieldMessages = err?.errors
+        ? Object.values(err.errors as Record<string, string[]>).flat().filter(Boolean).join('\n')
+        : '';
+      const errMsg = fieldMessages || err?.message || 'Unable to save vehicle. Please try again.';
       Alert.alert('Save Error', errMsg);
     } finally {
       setLoading(false);
     }
   };
 
-  // Completion Counters for Collapsible Sections
-  const basicComplete = [rmvRegNo || registrationNumber, rmvMake || brand, odometer].filter(Boolean).length;
-  const specsComplete = [rmvChassisNo, rmvEngineNo, rmvCylinderCapacity, rmvClassOfVehicle, rmvBodyType, rmvYearOfMfg, rmvWheelBase, rmvOverhang].filter(Boolean).length;
-  const dimComplete = [rmvDimensions, rmvInternalHeight, rmvWeight, rmvTyreSize].filter(Boolean).length;
-  const ownerComplete = [rmvOwnerDetails, rmvAbsoluteOwner, rmvStatusWhenRegistered, rmvPreviousOwners].filter(Boolean).length;
-  const taxComplete = [rmvTaxationClass, rmvProvincialCouncil, rmvDateFirstReg, rmvTaxesPayable].filter(Boolean).length;
+  const filled = (value: string) => Boolean(value && value.trim());
+  const basicComplete = [rmvRegNo || registrationNumber, rmvMake || brand, rmvModel || model, odometer].filter(filled).length;
+  const specsComplete = [rmvChassisNo, rmvEngineNo, rmvCylinderCapacity, rmvClassOfVehicle, rmvBodyType, rmvYearOfMfg, rmvWheelBase, rmvOverhang].filter(filled).length;
+  const dimComplete = [rmvDimensions, rmvInternalHeight, rmvWeight, rmvTyreSize].filter(filled).length;
+  const ownerComplete = [rmvOwnerDetails, rmvAbsoluteOwner, rmvStatusWhenRegistered, rmvPreviousOwners].filter(filled).length;
+  const taxComplete = [rmvTaxationClass, rmvProvincialCouncil, rmvDateFirstReg, rmvTaxesPayable].filter(filled).length;
+  const notesComplete = [rmvColour, rmvSeatingCapacity, rmvConditionsNotes, notes].filter(filled).length;
+
+  const sectionTotals: Record<FormSectionId, { filled: number; total: number }> = {
+    core: { filled: basicComplete, total: 4 },
+    specs: { filled: specsComplete, total: 8 },
+    dims: { filled: dimComplete, total: 4 },
+    owner: { filled: ownerComplete, total: 4 },
+    tax: { filled: taxComplete, total: 4 },
+    notes: { filled: notesComplete, total: 4 },
+  };
+
+  const isSectionComplete = (id: FormSectionId) => sectionTotals[id].filled >= sectionTotals[id].total;
+
+  useEffect(() => {
+    setAcknowledgedComplete((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      (Object.keys(next) as FormSectionId[]).forEach((id) => {
+        if (next[id] && !isSectionComplete(id)) {
+          next[id] = false;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [basicComplete, specsComplete, dimComplete, ownerComplete, taxComplete, notesComplete]);
+
+  const acknowledgeIfComplete = useCallback((id: FormSectionId) => {
+    if (isSectionComplete(id)) {
+      setAcknowledgedComplete((prev) => (prev[id] ? prev : { ...prev, [id]: true }));
+    }
+  }, [basicComplete, specsComplete, dimComplete, ownerComplete, taxComplete, notesComplete]);
+
+  const scrollToTarget = (id: FormSectionId | 'save') => {
+    setTimeout(() => {
+      const node = sectionRefs.current[id];
+      const scrollView = scrollViewRef.current;
+      if (!node || !scrollView) {
+        if (id === 'save') scrollViewRef.current?.scrollToEnd({ animated: true });
+        return;
+      }
+      node.measureInWindow((x, y) => {
+        (scrollView as any).measureInWindow?.((sx: number, sy: number) => {
+          const target = scrollOffsetRef.current + (y - sy) - 12;
+          scrollView.scrollTo({ y: Math.max(target, 0), animated: true });
+        });
+      });
+    }, 320);
+  };
+
+  const openSection = (id: FormSectionId | null) => {
+    if (expandedSection && expandedSection !== id) {
+      acknowledgeIfComplete(expandedSection);
+    }
+    setExpandedSection(id);
+  };
+
+  const handleToggleSection = (id: FormSectionId, nextExpanded: boolean) => {
+    if (nextExpanded) {
+      openSection(id);
+      return;
+    }
+    acknowledgeIfComplete(id);
+    setExpandedSection((current) => (current === id ? null : current));
+  };
+
+  const goToNextOrSave = (id: FormSectionId) => {
+    acknowledgeIfComplete(id);
+    const skipIndex = SKIPPABLE_SECTIONS.indexOf(id);
+    if (skipIndex >= 0 && skipIndex < SKIPPABLE_SECTIONS.length - 1) {
+      const nextId = SKIPPABLE_SECTIONS[skipIndex + 1];
+      setExpandedSection(nextId);
+      scrollToTarget(nextId);
+      return;
+    }
+    setExpandedSection(null);
+    scrollToTarget('save');
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -484,10 +517,15 @@ export default function AddVehicleScreen() {
 
         {/* Main Content Scroll View */}
         <ScrollView
+          ref={scrollViewRef}
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}>
+          showsVerticalScrollIndicator={false}
+          onScroll={(event) => {
+            scrollOffsetRef.current = event.nativeEvent.contentOffset.y;
+          }}
+          scrollEventThrottle={16}>
 
           {/* SECTION 1: VEHICLE CATEGORY */}
           <View style={styles.sectionBlock}>
@@ -513,22 +551,19 @@ export default function AddVehicleScreen() {
           <View style={styles.sectionBlock}>
             <View style={styles.sectionHeaderRow}>
               <Text style={styles.sectionHeaderTitle}>3. Vehicle Registration Details</Text>
-              <Text style={styles.sectionHeaderSub}>Enter manually or scan your registration certificate</Text>
+              <Text style={styles.sectionHeaderSub}>Enter your registration certificate details</Text>
             </View>
 
-            {/* Prominent Scan Document CTA Card */}
-            <ScanDocumentCard
-              onScanPress={handleSmartDocumentScan}
-              autoFilledCount={autoFilledCount}
-            />
-
             {/* Collapsible Group 1: Registration & Core Specs */}
+            <View ref={(node) => { sectionRefs.current.core = node; }} collapsable={false}>
             <CollapsibleFormSection
               title="Registration & Core Specs"
               subtitle="Registration No, Make, Model & Odometer"
               completedCount={basicComplete}
-              totalCount={3}
-              initiallyExpanded={true}>
+              totalCount={4}
+              expanded={expandedSection === 'core'}
+              onExpandedChange={(next) => handleToggleSection('core', next)}
+              showCompletedTick={acknowledgedComplete.core && isSectionComplete('core')}>
 
               <PremiumInput
                 label="Registration No."
@@ -544,7 +579,7 @@ export default function AddVehicleScreen() {
                 error={fieldErrors.regNo}
               />
 
-              <View style={styles.rowTwoInputs}>
+              <View style={[styles.rowTwoInputs, width < 340 && { flexDirection: 'column' }]}>
                 <PremiumInput
                   label="Make"
                   isRequired
@@ -561,18 +596,20 @@ export default function AddVehicleScreen() {
 
                 <PremiumInput
                   label="Model"
-                  isOptional
+                  isRequired
                   placeholder="e.g. Himalayan"
                   value={rmvModel || model}
                   onChangeText={(v) => {
                     setRmvModel(v);
                     setModel(v);
+                    if (fieldErrors.model) setFieldErrors((prev) => ({ ...prev, model: undefined }));
                   }}
+                  error={fieldErrors.model}
                   containerStyle={{ flex: 1 }}
                 />
               </View>
 
-              <View style={styles.rowTwoInputs}>
+              <View style={[styles.rowTwoInputs, width < 340 && { flexDirection: 'column' }]}>
                 <PremiumInput
                   label="Country of Origin"
                   isOptional
@@ -608,16 +645,24 @@ export default function AddVehicleScreen() {
                 error={fieldErrors.odometer}
               />
             </CollapsibleFormSection>
+            </View>
 
             {/* Collapsible Group 2: Chassis, Engine & Body Specs */}
+            <View ref={(node) => { sectionRefs.current.specs = node; }} collapsable={false}>
             <CollapsibleFormSection
               title="Vehicle Specifications"
               subtitle="Chassis, Engine, CC, Body & Year"
               completedCount={specsComplete}
               totalCount={8}
-              initiallyExpanded={false}>
+              expanded={expandedSection === 'specs'}
+              onExpandedChange={(next) => handleToggleSection('specs', next)}
+              showCompletedTick={acknowledgedComplete.specs && isSectionComplete('specs')}
+              showSkip
+              showNext={isSectionComplete('specs')}
+              onSkip={() => goToNextOrSave('specs')}
+              onNext={() => goToNextOrSave('specs')}>
 
-              <View style={styles.rowTwoInputs}>
+              <View style={[styles.rowTwoInputs, width < 340 && { flexDirection: 'column' }]}>
                 <PremiumInput
                   label="Chassis No."
                   placeholder="Chassis VIN"
@@ -637,9 +682,10 @@ export default function AddVehicleScreen() {
                 />
               </View>
 
-              <View style={styles.rowTwoInputs}>
+              <View style={[styles.rowTwoInputs, width < 340 && { flexDirection: 'column' }]}>
                 <PremiumInput
                   label="Cylinder Capacity (CC)"
+                  isOptional
                   placeholder="e.g. 452 cc"
                   value={rmvCylinderCapacity}
                   onChangeText={setRmvCylinderCapacity}
@@ -649,6 +695,7 @@ export default function AddVehicleScreen() {
 
                 <PremiumInput
                   label="Class of Vehicle"
+                  isOptional
                   placeholder="e.g. Dual Purpose / Car"
                   value={rmvClassOfVehicle}
                   onChangeText={setRmvClassOfVehicle}
@@ -656,9 +703,10 @@ export default function AddVehicleScreen() {
                 />
               </View>
 
-              <View style={styles.rowTwoInputs}>
+              <View style={[styles.rowTwoInputs, width < 340 && { flexDirection: 'column' }]}>
                 <PremiumInput
                   label="Type of Body"
+                  isOptional
                   placeholder="e.g. Sedan / Solo Motorcycle"
                   value={rmvBodyType}
                   onChangeText={setRmvBodyType}
@@ -667,6 +715,7 @@ export default function AddVehicleScreen() {
 
                 <PremiumInput
                   label="Year of Manufacture"
+                  isOptional
                   placeholder="e.g. 2024"
                   value={rmvYearOfMfg}
                   onChangeText={(v) => {
@@ -679,9 +728,10 @@ export default function AddVehicleScreen() {
                 />
               </View>
 
-              <View style={styles.rowTwoInputs}>
+              <View style={[styles.rowTwoInputs, width < 340 && { flexDirection: 'column' }]}>
                 <PremiumInput
                   label="Wheel Base (mm)"
+                  isOptional
                   placeholder="e.g. 1510 mm"
                   value={rmvWheelBase}
                   onChangeText={setRmvWheelBase}
@@ -691,6 +741,7 @@ export default function AddVehicleScreen() {
 
                 <PremiumInput
                   label="Over Hang (mm)"
+                  isOptional
                   placeholder="e.g. 450 mm"
                   value={rmvOverhang}
                   onChangeText={setRmvOverhang}
@@ -707,14 +758,22 @@ export default function AddVehicleScreen() {
                 onChangeText={setRmvMfrDescription}
               />
             </CollapsibleFormSection>
+            </View>
 
             {/* Collapsible Group 3: Dimensions & Construction */}
+            <View ref={(node) => { sectionRefs.current.dims = node; }} collapsable={false}>
             <CollapsibleFormSection
               title="Dimensions & Capacity"
               subtitle="Length, Width, Height & Weight"
               completedCount={dimComplete}
               totalCount={4}
-              initiallyExpanded={false}>
+              expanded={expandedSection === 'dims'}
+              onExpandedChange={(next) => handleToggleSection('dims', next)}
+              showCompletedTick={acknowledgedComplete.dims && isSectionComplete('dims')}
+              showSkip
+              showNext={isSectionComplete('dims')}
+              onSkip={() => goToNextOrSave('dims')}
+              onNext={() => goToNextOrSave('dims')}>
 
               <PremiumInput
                 label="Dimensions (L x W x H)"
@@ -724,7 +783,7 @@ export default function AddVehicleScreen() {
                 onChangeText={setRmvDimensions}
               />
 
-              <View style={styles.rowTwoInputs}>
+              <View style={[styles.rowTwoInputs, width < 340 && { flexDirection: 'column' }]}>
                 <PremiumInput
                   label="Internal Height"
                   isOptional
@@ -753,14 +812,22 @@ export default function AddVehicleScreen() {
                 onChangeText={setRmvTyreSize}
               />
             </CollapsibleFormSection>
+            </View>
 
             {/* Collapsible Group 4: Ownership & Status */}
+            <View ref={(node) => { sectionRefs.current.owner = node; }} collapsable={false}>
             <CollapsibleFormSection
               title="Ownership & Status"
               subtitle="Owner Name, Address, NIC & Absolute Owner"
               completedCount={ownerComplete}
               totalCount={4}
-              initiallyExpanded={false}>
+              expanded={expandedSection === 'owner'}
+              onExpandedChange={(next) => handleToggleSection('owner', next)}
+              showCompletedTick={acknowledgedComplete.owner && isSectionComplete('owner')}
+              showSkip
+              showNext={isSectionComplete('owner')}
+              onSkip={() => goToNextOrSave('owner')}
+              onNext={() => goToNextOrSave('owner')}>
 
               <PremiumInput
                 label="Current Owner / Address / ID No."
@@ -777,9 +844,10 @@ export default function AddVehicleScreen() {
                 onChangeText={setRmvAbsoluteOwner}
               />
 
-              <View style={styles.rowTwoInputs}>
+              <View style={[styles.rowTwoInputs, width < 340 && { flexDirection: 'column' }]}>
                 <PremiumInput
                   label="Status When Registered"
+                  isOptional
                   placeholder="e.g. Brand New / Reconditioned"
                   value={rmvStatusWhenRegistered}
                   onChangeText={setRmvStatusWhenRegistered}
@@ -788,6 +856,7 @@ export default function AddVehicleScreen() {
 
                 <PremiumInput
                   label="Previous Owners"
+                  isOptional
                   placeholder="e.g. 0 / 1 Owner"
                   value={rmvPreviousOwners}
                   onChangeText={setRmvPreviousOwners}
@@ -795,16 +864,24 @@ export default function AddVehicleScreen() {
                 />
               </View>
             </CollapsibleFormSection>
+            </View>
 
             {/* Collapsible Group 5: Taxation & Registration Dates */}
+            <View ref={(node) => { sectionRefs.current.tax = node; }} collapsable={false}>
             <CollapsibleFormSection
               title="Taxation & Provincial Council"
               subtitle="Taxation Class, Province & Registration Date"
               completedCount={taxComplete}
               totalCount={4}
-              initiallyExpanded={false}>
+              expanded={expandedSection === 'tax'}
+              onExpandedChange={(next) => handleToggleSection('tax', next)}
+              showCompletedTick={acknowledgedComplete.tax && isSectionComplete('tax')}
+              showSkip
+              showNext={isSectionComplete('tax')}
+              onSkip={() => goToNextOrSave('tax')}
+              onNext={() => goToNextOrSave('tax')}>
 
-              <View style={styles.rowTwoInputs}>
+              <View style={[styles.rowTwoInputs, width < 340 && { flexDirection: 'column' }]}>
                 <PremiumInput
                   label="Taxation Class"
                   placeholder="e.g. Private / Commercial"
@@ -822,7 +899,7 @@ export default function AddVehicleScreen() {
                 />
               </View>
 
-              <View style={styles.rowTwoInputs}>
+              <View style={[styles.rowTwoInputs, width < 340 && { flexDirection: 'column' }]}>
                 <PremiumInput
                   label="Date of First Registration"
                   placeholder="e.g. 2024-03-15"
@@ -841,14 +918,24 @@ export default function AddVehicleScreen() {
                 />
               </View>
             </CollapsibleFormSection>
+            </View>
 
             {/* Collapsible Group 6: Additional Details & Notes */}
+            <View ref={(node) => { sectionRefs.current.notes = node; }} collapsable={false}>
             <CollapsibleFormSection
               title="Conditions & Notes"
               subtitle="Special notes, colour & seating capacity"
-              initiallyExpanded={false}>
+              completedCount={notesComplete}
+              totalCount={4}
+              expanded={expandedSection === 'notes'}
+              onExpandedChange={(next) => handleToggleSection('notes', next)}
+              showCompletedTick={acknowledgedComplete.notes && isSectionComplete('notes')}
+              showSkip
+              showNext={isSectionComplete('notes')}
+              onSkip={() => goToNextOrSave('notes')}
+              onNext={() => goToNextOrSave('notes')}>
 
-              <View style={styles.rowTwoInputs}>
+              <View style={[styles.rowTwoInputs, width < 340 && { flexDirection: 'column' }]}>
                 <PremiumInput
                   label="Colour"
                   placeholder="e.g. Black / Silver"
@@ -886,6 +973,7 @@ export default function AddVehicleScreen() {
                 style={{ height: 80, textAlignVertical: 'top' }}
               />
             </CollapsibleFormSection>
+            </View>
           </View>
 
           {/* SECTION 4: DOCUMENTS & PHOTO ATTACHMENT */}
@@ -914,7 +1002,13 @@ export default function AddVehicleScreen() {
             />
           </View>
 
-          <View style={{ height: 40 }} />
+          <View
+            ref={(node) => {
+              sectionRefs.current.save = node;
+            }}
+            collapsable={false}
+            style={{ height: 40 }}
+          />
         </ScrollView>
 
         {/* Sticky Premium Bottom Action Bar */}
@@ -938,24 +1032,6 @@ export default function AddVehicleScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Scanner & Review Modals */}
-        <DocumentScannerModal
-          visible={scannerModalVisible}
-          onClose={() => setScannerModalVisible(false)}
-          onExtractionComplete={handleExtractionComplete}
-        />
-
-        <DocumentReviewModal
-          visible={reviewModalVisible}
-          extractionResult={extractedResult}
-          imageUri={scannedImageUri}
-          onClose={() => setReviewModalVisible(false)}
-          onConfirmAutoFill={handleConfirmAutoFill}
-          onRetake={() => {
-            setReviewModalVisible(false);
-            setScannerModalVisible(true);
-          }}
-        />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
