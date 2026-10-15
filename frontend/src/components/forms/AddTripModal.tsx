@@ -154,7 +154,7 @@ export const AddTripModal: React.FC<AddTripModalProps> = ({
                 />
               </View>
               <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
-                <Text style={styles.label}>Trip Cost (₹)</Text>
+                <Text style={styles.label}>Trip Cost (LKR)</Text>
                 <TextInput
                   style={styles.input}
                   value={cost}

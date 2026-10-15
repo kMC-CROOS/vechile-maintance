@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -143,55 +144,96 @@ export default function DocumentsScreen() {
   const [showForm, setShowForm] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
 
-  // Initialize documents state from cache
-  const [documents, setDocuments] = useState<VehicleDocument[]>(() => {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      try {
-        const cached = window.localStorage.getItem(STORAGE_KEY);
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-        }
-      } catch {}
-    }
-    // Initial mock/pre-populated records matching user vehicle context
-    return [
-      {
-        id: 1,
-        vehicle_id: activeVehicle?.id || 1,
+  // Initialize documents state — empty, loaded from API on focus
+  const [documents, setDocuments] = useState<VehicleDocument[]>([]);
+
+  // Build documents list from the activeVehicle's eager-loaded relations
+  const buildDocsFromVehicle = useCallback((vehicle: typeof activeVehicle) => {
+    if (!vehicle) return [];
+    const docs: VehicleDocument[] = [];
+
+    if (vehicle.tax_record || (vehicle as any).taxRecord) {
+      const tax = vehicle.tax_record || (vehicle as any).taxRecord;
+      docs.push({
+        id: tax.id || Date.now(),
+        vehicle_id: vehicle.id,
         category: 'tax',
         title: 'Revenue Licence / Tax',
-        valid_until: '2027-04-30',
-        amount_paid: 4500,
-        notes: 'Annual vehicle emission test & revenue licence renewal',
-        created_at: new Date().toISOString(),
-      },
-      {
-        id: 2,
-        vehicle_id: activeVehicle?.id || 1,
+        valid_until: tax.valid_until || '',
+        amount_paid: tax.amount_paid,
+        document_path: tax.document_path,
+        created_at: tax.created_at,
+      });
+    }
+
+    if (vehicle.insurance || (vehicle as any).insurance) {
+      const ins = vehicle.insurance || (vehicle as any).insurance;
+      docs.push({
+        id: ins.id || Date.now() + 1,
+        vehicle_id: vehicle.id,
         category: 'insurance',
-        title: 'Comprehensive Vehicle Insurance',
-        provider: 'Ceylinco VIP',
-        policy_number: 'POL-CEY-849201',
-        valid_until: '2027-01-15',
-        amount_paid: 42500,
-        notes: 'Full comprehensive cover with flood & natural disasters',
-        created_at: new Date().toISOString(),
-      },
-      {
-        id: 3,
-        vehicle_id: activeVehicle?.id || 1,
+        title: ins.provider ? `${ins.provider} Insurance` : 'Vehicle Insurance',
+        provider: ins.provider,
+        policy_number: ins.policy_number,
+        valid_until: ins.expiry_date || '',
+        document_path: ins.document_path,
+        created_at: ins.created_at,
+      });
+    }
+
+    if (vehicle.warranty || (vehicle as any).warranty) {
+      const war = vehicle.warranty || (vehicle as any).warranty;
+      docs.push({
+        id: war.id || Date.now() + 2,
+        vehicle_id: vehicle.id,
         category: 'warranty',
-        title: 'Manufacturer Extended Warranty',
-        provider: 'Toyota Lanka',
-        policy_number: 'WAR-TL-99482',
-        valid_until: '2027-11-20',
-        amount_paid: 0,
-        notes: '3-Year / 100,000 KM manufacturer engine and transmission warranty',
-        created_at: new Date().toISOString(),
-      },
-    ];
-  });
+        title: 'Vehicle Warranty',
+        valid_until: war.expiry_date || '',
+        document_path: war.document_path,
+        created_at: war.created_at,
+      });
+    }
+
+    return docs;
+  }, []);
+
+  // Fetch documents: prefer activeVehicle relations, fall back to /vehicles/{id}
+  const fetchDocuments = useCallback(async (force = false) => {
+    if (!activeVehicle?.id) {
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
+    // First populate from already-loaded vehicle relations (instant, no network)
+    const fromContext = buildDocsFromVehicle(activeVehicle);
+    if (fromContext.length > 0) {
+      setDocuments(fromContext);
+    }
+
+    if (!force && fromContext.length > 0) {
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
+    try {
+      const vehicle = await apiFetch<any>(`/vehicles/${activeVehicle.id}`);
+      const refreshed = buildDocsFromVehicle(vehicle);
+      setDocuments(refreshed);
+    } catch {
+      // Keep whatever we already have
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [activeVehicle, buildDocsFromVehicle]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchDocuments(true);
+    }, [fetchDocuments])
+  );
 
   // Form Fields
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
@@ -215,14 +257,13 @@ export default function DocumentsScreen() {
   // User feedback toast / alert banner
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Sync documents to local storage
+  // Refresh when activeVehicle changes
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      try {
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(documents));
-      } catch {}
+    if (activeVehicle?.id) {
+      const fromContext = buildDocsFromVehicle(activeVehicle);
+      if (fromContext.length > 0) setDocuments(fromContext);
     }
-  }, [documents]);
+  }, [activeVehicle, buildDocsFromVehicle]);
 
   // Pick Image from device
   const pickImage = async (e?: any) => {
@@ -400,24 +441,42 @@ export default function DocumentsScreen() {
     // 4. Background sync if activeVehicle is available
     if (activeVehicle?.id) {
       try {
-        const endpoint =
-          activeTab === 'tax' ? 'tax' : activeTab === 'insurance' ? 'insurance' : 'warranty';
+        let payload: any;
+        if (activeTab === 'insurance') {
+          payload = {
+            expiry_date: newDoc.valid_until,
+            start_date: todayStr,
+            provider: newDoc.provider || undefined,
+            policy_number: newDoc.policy_number || undefined,
+            reminder_days_before: 14,
+          };
+        } else if (activeTab === 'warranty') {
+          payload = {
+            expiry_date: newDoc.valid_until,
+            start_date: todayStr,
+            reminder_days_before: 14,
+          };
+        } else {
+          // tax
+          payload = {
+            valid_until: newDoc.valid_until,
+            amount_paid: Number(newDoc.amount_paid) || 0,
+            start_date: todayStr,
+          };
+        }
+
+        const endpoint = activeTab; // 'tax' | 'insurance' | 'warranty'
         await apiFetch(`/vehicles/${activeVehicle.id}/${endpoint}`, {
           method: 'POST',
-          body: {
-            title: newDoc.title,
-            valid_until: newDoc.valid_until,
-            amount_paid: newDoc.amount_paid,
-            provider: newDoc.provider,
-            policy_number: newDoc.policy_number,
-            notes: newDoc.notes,
-          },
+          body: payload,
         });
         if (reloadVehicles) {
           await reloadVehicles(activeVehicle.id);
         }
+        // Refresh docs from updated vehicle
+        fetchDocuments(true);
       } catch {
-        // Safe offline fallback: maintained in local state and localStorage
+        // Safe offline fallback: maintained in local state
       }
     }
   };

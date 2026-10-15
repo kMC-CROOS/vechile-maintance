@@ -52,6 +52,7 @@ interface StatusGridProps {
     puc?: { expiryDate?: string; certificate_number?: string };
   } | null;
   onAnalyticsPress?: () => void;
+  onExpensesPress?: () => void;
   onAlertPress?: () => void;
   onNextServicePress?: () => void;
   onInsurancePress?: () => void;
@@ -79,6 +80,7 @@ function DashboardTile({ title, value, description, icon, color, background, onP
 export const StatusGrid: React.FC<StatusGridProps> = ({
   activeVehicle,
   onAnalyticsPress,
+  onExpensesPress,
   onAlertPress,
   onNextServicePress,
   onInsurancePress,
@@ -402,7 +404,7 @@ export const StatusGrid: React.FC<StatusGridProps> = ({
         {periodMenu ? <View style={styles.periodMenu}>{(['month', 'all'] as const).map((value) => <TouchableOpacity key={value} style={styles.periodButton} onPress={() => { setPeriod(value); setPeriodMenu(false); }}><Text style={styles.periodText}>{value === 'month' ? 'This Month' : 'All Time'}{period === value ? ' \u2713' : ''}</Text></TouchableOpacity>)}</View> : null}
         <View style={styles.statusRow}>
           <DashboardTile title="Total Expenses Logged" value={unavailable ? '\u2014' : formatCurrency(period === 'month' ? financialStats.monthExpenses : financialStats.totalExpenses)} description={period === 'month' ? 'Expenses this month' : 'All recorded expenses'}
-            icon="wallet" color="#1769FF" background="#EDF5FF" onPress={onAnalyticsPress} />
+            icon="wallet" color="#1769FF" background="#EDF5FF" onPress={onExpensesPress || onAnalyticsPress} />
           <DashboardTile title="Fuel This Month" value={unavailable ? '\u2014' : formatCurrency(financialStats.fuelThisMonth)} description="Recorded fuel expenses"
             icon="fuel" color="#008B70" background="#EDFCF6" onPress={onAnalyticsPress} />
         </View>

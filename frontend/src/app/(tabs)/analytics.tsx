@@ -17,6 +17,7 @@ import Svg, { Circle, G, Path, Rect } from 'react-native-svg';
 import { useVehicle } from '@/context/VehicleContext';
 import { apiFetch } from '@/services/api';
 import { formatCurrency, formatDate, formatOdometer } from '@/utils/format';
+import { BackButton } from '@/components/ui/BackButton';
 
 // Icons
 const ChartIcon = ({ size = 18, color = '#2563EB' }: { size?: number; color?: string }) => (
@@ -388,23 +389,26 @@ export default function AnalyticsScreen() {
         ]}>
         {/* Top Header */}
         <View style={styles.header}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.title}>Analytics & Alarms</Text>
-            <Text style={styles.subtitle}>
-              {activeVehicle
-                ? `${activeVehicle.brand || ''} ${activeVehicle.model || ''} (${activeVehicle.registration_number || ''})`.trim()
-                : 'Vehicle cost breakdown, fuel economy & scheduled alarms'}
-            </Text>
-          </View>
+          <BackButton style={styles.backButton} />
+          <View style={styles.headerRow}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text style={styles.title}>Analytics & Alarms</Text>
+              <Text style={styles.subtitle}>
+                {activeVehicle
+                  ? `${activeVehicle.brand || ''} ${activeVehicle.model || ''} (${activeVehicle.registration_number || ''})`.trim()
+                  : 'Vehicle cost breakdown, fuel economy & scheduled alarms'}
+              </Text>
+            </View>
 
-          {/* Test Trigger Button */}
-          <TouchableOpacity
-            style={styles.testAlarmBtn}
-            activeOpacity={0.8}
-            onPress={(e) => triggerTestAlarm('Routine Service & Insurance Due', e)}>
-            <AlarmIcon size={15} color="#FFFFFF" />
-            <Text style={styles.testAlarmBtnText}>Test Alarm</Text>
-          </TouchableOpacity>
+            {/* Test Trigger Button */}
+            <TouchableOpacity
+              style={styles.testAlarmBtn}
+              activeOpacity={0.8}
+              onPress={(e) => triggerTestAlarm('Routine Service & Insurance Due', e)}>
+              <AlarmIcon size={15} color="#FFFFFF" />
+              <Text style={styles.testAlarmBtnText}>Test Alarm</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Test Toast Alert Banner */}
@@ -792,15 +796,22 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: Platform.OS === 'ios' ? 12 : 18,
+    paddingTop: Platform.OS === 'ios' ? 8 : 12,
     paddingBottom: 16,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E2E8F0',
+  },
+  backButton: {
+    alignSelf: 'flex-start',
+    marginBottom: 4,
+    marginLeft: -4,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   title: {
     fontSize: 22,

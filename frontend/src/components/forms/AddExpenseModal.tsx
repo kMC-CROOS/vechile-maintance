@@ -1,6 +1,6 @@
-import { validateServiceEntry, validNonNegativeNumber, validDocumentDate } from '@/utils/dashboardValidation';
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Modal,
@@ -15,29 +15,50 @@ import {
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { DatePickerField } from '@/components/ui/DatePickerField';
+import {
+  validNonNegativeNumber,
+  validDocumentDate,
+  getLocalTodayString,
+} from '@/utils/dashboardValidation';
+import { useVehicle } from '@/context/VehicleContext';
+import { apiFetch } from '@/services/api';
+import { dataCache } from '@/services/dataCache';
 
 interface AddExpenseModalProps {
   visible: boolean;
   onClose: () => void;
   onSave?: (data: any) => void | Promise<void>;
+  vehicleId?: number;
 }
 
-const PAYMENT_METHODS = ['UPI', 'Cash', 'Card', 'NetBanking', 'Other'] as const;
+const PAYMENT_METHODS = ['Cash', 'Card', 'LankaQR', 'Bank Transfer', 'Other'] as const;
 
 const EXPENSE_CATEGORIES = [
   'Fuel',
   'Service',
   'Repair',
   'Parking',
-  'Toll',
+  'Expressway Toll',
   'Insurance',
-  'Washing',
+  'Vehicle Wash',
   'Accessories',
-  'Fines',
-  'Tax',
-  'Loan EMI',
+  'Traffic Fine',
+  'Revenue Licence',
+  'Leasing / Loan',
   'Other',
 ] as const;
+
+const BackIcon = () => (
+  <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+    <Path
+      d="M19 12H5M5 12L12 19M5 12L12 5"
+      stroke="#1E293B"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </Svg>
+);
 
 const CloseIcon = () => (
   <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
@@ -49,44 +70,143 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
   visible,
   onClose,
   onSave,
+  vehicleId,
 }) => {
-  const today = new Date().toISOString().split('T')[0];
-  const [expenseDate, setExpenseDate] = useState(today);
+  const { activeVehicle, reloadVehicles } = useVehicle();
+  const targetVehicleId = vehicleId || activeVehicle?.id;
+
+  const [expenseDate, setExpenseDate] = useState(getLocalTodayString());
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<string>('UPI');
+  const [paymentMethod, setPaymentMethod] = useState<string>('Cash');
   const [category, setCategory] = useState<string>('Fuel');
   const [loading, setLoading] = useState(false);
   const saving = useRef(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (visible) {
+      setExpenseDate(getLocalTodayString());
+      setAmount('');
+      setDescription('');
+      setCategory('Fuel');
+      setPaymentMethod('Cash');
+      setSaveError(null);
+      setFieldErrors({});
+      saving.current = false;
+      setLoading(false);
+    }
+  }, [visible]);
 
   const handleSave = async (e?: any) => {
     e?.preventDefault?.();
     e?.stopPropagation?.();
+
+    console.log('[AddExpenseModal] handleSave invoked', {
+      targetVehicleId,
+      amount,
+      expenseDate,
+      description,
+      category,
+      paymentMethod,
+    });
+
     if (saving.current) return;
     setSaveError(null);
-    if (!validNonNegativeNumber(amount) || Number(amount) <= 0) { setSaveError('Enter an amount greater than zero.'); return; }
-    if (!validDocumentDate(expenseDate) || expenseDate > today) { setSaveError('Choose a valid expense date that is not in the future.'); return; }
-    if (!description.trim() || description.trim().length > 190) { setSaveError('Enter a description of 1 to 190 characters.'); return; }
+
+    const errors: Record<string, string> = {};
+    const todayStr = getLocalTodayString();
+
+    const cleanAmount = amount.trim();
+    if (!cleanAmount) {
+      errors.amount = 'Amount is required.';
+    } else if (!validNonNegativeNumber(cleanAmount) || Number(cleanAmount) <= 0) {
+      errors.amount = 'Enter an amount greater than zero.';
+    }
+
+    if (!expenseDate || !expenseDate.trim()) {
+      errors.expenseDate = 'Expense date is required.';
+    } else if (!validDocumentDate(expenseDate)) {
+      errors.expenseDate = 'Date must be in YYYY-MM-DD format.';
+    } else if (expenseDate > todayStr) {
+      errors.expenseDate = 'Expense date cannot be in the future.';
+    }
+
+    const cleanDesc = description.trim();
+    if (!cleanDesc) {
+      errors.description = 'Description is required.';
+    } else if (cleanDesc.length > 255) {
+      errors.description = 'Description cannot exceed 255 characters.';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      const firstMsg = Object.values(errors)[0];
+      setSaveError(firstMsg);
+      Alert.alert('Validation Error', firstMsg);
+      return;
+    }
+
+    if (!targetVehicleId) {
+      const msg = 'No vehicle selected. Please select a vehicle first.';
+      setSaveError(msg);
+      Alert.alert('Error', msg);
+      return;
+    }
+
     saving.current = true;
     setLoading(true);
-    const expenseData = {
-      expenseDate,
-      amount: Number(amount),
-      description: description.trim(),
-      paymentMethod,
-      category,
+
+    const payload = {
+      category: category.toLowerCase(),
+      expense_date: expenseDate,
+      description: cleanDesc,
+      amount: Number(cleanAmount),
     };
 
     try {
-      if (!onSave) throw new Error('Saving is unavailable. Please reopen this form.');
-      if (onSave) {
-        await onSave(expenseData);
+      console.log(`[AddExpenseModal] POSTing to /vehicles/${targetVehicleId}/expenses:`, payload);
+      const createdExpense = await apiFetch<any>(`/vehicles/${targetVehicleId}/expenses`, {
+        method: 'POST',
+        body: payload,
+      });
+      console.log('[AddExpenseModal] Successfully created expense:', createdExpense);
+
+      // Invalidate cache and web localStorage
+      dataCache.clear();
+      if (typeof window !== 'undefined' && window.localStorage) {
+        try {
+          window.localStorage.removeItem('vehiclecare_expenses_list');
+        } catch {}
       }
-      Alert.alert('Success', 'Expense logged successfully!');
+
+      // Reload vehicles in context so financial analytics and summaries update
+      try {
+        await reloadVehicles(targetVehicleId);
+      } catch (reloadErr) {
+        console.warn('[AddExpenseModal] reloadVehicles warning:', reloadErr);
+      }
+
+      // Notify caller
+      if (onSave) {
+        try {
+          await onSave(createdExpense || payload);
+        } catch (onSaveErr) {
+          console.warn('[AddExpenseModal] onSave callback warning:', onSaveErr);
+        }
+      }
+
+      // Close modal immediately (reliable on both mobile and web)
       onClose();
+      Alert.alert('Success', 'Expense logged successfully!');
     } catch (err: any) {
-      setSaveError(err?.message || 'Failed to save expense');
+      console.error('[AddExpenseModal] Error saving expense:', err);
+      const serverMsg =
+        err?.message ||
+        (err?.errors ? Object.values(err.errors).flat().join(' ') : 'Failed to save expense.');
+      setSaveError(serverMsg);
+      Alert.alert('Save Failed', serverMsg);
     } finally {
       saving.current = false;
       setLoading(false);
@@ -101,11 +221,26 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           {/* Header */}
           <View style={styles.header}>
-            <View>
-              <Text style={styles.title}>Add Expense</Text>
-              <Text style={styles.subtitle}>Track your maintenance and operational costs</Text>
+            <View style={styles.headerLeft}>
+              <TouchableOpacity
+                style={styles.backBtn}
+                onPress={onClose}
+                activeOpacity={0.7}
+                accessibilityLabel="Go back"
+                accessibilityRole="button">
+                <BackIcon />
+              </TouchableOpacity>
+              <View style={styles.titleContainer}>
+                <Text style={styles.title}>Add Expense</Text>
+                <Text style={styles.subtitle}>Track your maintenance and operational costs</Text>
+              </View>
             </View>
-            <TouchableOpacity style={styles.closeBtn} onPress={onClose} activeOpacity={0.7}>
+            <TouchableOpacity
+              style={styles.closeBtn}
+              onPress={onClose}
+              activeOpacity={0.7}
+              accessibilityLabel="Close"
+              accessibilityRole="button">
               <CloseIcon />
             </TouchableOpacity>
           </View>
@@ -114,22 +249,44 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             style={styles.scroll}
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled">
-            {saveError ? <Text accessibilityRole="alert" style={{ color: '#B91C1C', marginBottom: 12 }}>{saveError}</Text> : null}
+            {saveError ? (
+              <View style={styles.errorBanner}>
+                <Text accessibilityRole="alert" style={styles.errorBannerText}>
+                  {saveError}
+                </Text>
+              </View>
+            ) : null}
+
             {/* Amount & Date */}
             <View style={styles.row}>
               <View style={[styles.inputGroup, { flex: 1.2, marginRight: 8 }]}>
-                <Text style={styles.label}>Amount (₹) *</Text>
+                <Text style={styles.label}>Amount (LKR) *</Text>
                 <TextInput
-                  style={[styles.input, styles.amountInput]}
+                  style={[styles.input, styles.amountInput, fieldErrors.amount ? styles.inputError : undefined]}
                   value={amount}
-                  onChangeText={setAmount}
+                  onChangeText={(val) => {
+                    setAmount(val);
+                    if (fieldErrors.amount) setFieldErrors((prev) => ({ ...prev, amount: undefined as any }));
+                  }}
                   keyboardType="numeric"
                   placeholder="0.00"
                 />
+                {fieldErrors.amount ? (
+                  <Text style={styles.fieldErrorText}>{fieldErrors.amount}</Text>
+                ) : null}
               </View>
               <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
-                <Text style={styles.label}>Date</Text>
-                <DatePickerField value={expenseDate} onChangeText={setExpenseDate} />
+                <Text style={styles.label}>Date *</Text>
+                <DatePickerField
+                  value={expenseDate}
+                  onChangeText={(val) => {
+                    setExpenseDate(val);
+                    if (fieldErrors.expenseDate) setFieldErrors((prev) => ({ ...prev, expenseDate: undefined as any }));
+                  }}
+                />
+                {fieldErrors.expenseDate ? (
+                  <Text style={styles.fieldErrorText}>{fieldErrors.expenseDate}</Text>
+                ) : null}
               </View>
             </View>
 
@@ -137,26 +294,32 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Description *</Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, fieldErrors.description ? styles.inputError : undefined]}
                 value={description}
-                onChangeText={setDescription}
+                onChangeText={(val) => {
+                  setDescription(val);
+                  if (fieldErrors.description) setFieldErrors((prev) => ({ ...prev, description: undefined as any }));
+                }}
                 placeholder="e.g. Petrol refill, Toll gate, Car wash"
               />
+              {fieldErrors.description ? (
+                <Text style={styles.fieldErrorText}>{fieldErrors.description}</Text>
+              ) : null}
             </View>
 
-            {/* Expense Category Pills */}
+            {/* Category */}
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Expense Category</Text>
-              <View style={styles.pillsWrap}>
+              <View style={styles.grid}>
                 {EXPENSE_CATEGORIES.map((cat) => {
-                  const active = category === cat;
+                  const selected = category === cat;
                   return (
                     <TouchableOpacity
                       key={cat}
-                      style={[styles.pill, active && styles.pillActive]}
+                      style={[styles.pill, selected && styles.pillActive]}
                       onPress={() => setCategory(cat)}
                       activeOpacity={0.75}>
-                      <Text style={[styles.pillText, active && styles.pillTextActive]}>
+                      <Text style={[styles.pillText, selected && styles.pillTextActive]}>
                         {cat}
                       </Text>
                     </TouchableOpacity>
@@ -165,19 +328,19 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
               </View>
             </View>
 
-            {/* Payment Method Pills */}
+            {/* Payment Method */}
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Payment Method</Text>
-              <View style={styles.pillsWrap}>
+              <View style={styles.grid}>
                 {PAYMENT_METHODS.map((method) => {
-                  const active = paymentMethod === method;
+                  const selected = paymentMethod === method;
                   return (
                     <TouchableOpacity
                       key={method}
-                      style={[styles.pill, active && styles.pillActive]}
+                      style={[styles.pill, selected && styles.pillActive]}
                       onPress={() => setPaymentMethod(method)}
                       activeOpacity={0.75}>
-                      <Text style={[styles.pillText, active && styles.pillTextActive]}>
+                      <Text style={[styles.pillText, selected && styles.pillTextActive]}>
                         {method}
                       </Text>
                     </TouchableOpacity>
@@ -194,9 +357,14 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
               onPress={handleSave}
               disabled={loading}
               activeOpacity={0.85}>
-              <Text style={styles.saveBtnText}>
-                {loading ? 'Saving Expense...' : 'Save Expense'}
-              </Text>
+              {loading ? (
+                <View style={styles.btnLoadingRow}>
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <Text style={[styles.saveBtnText, { marginLeft: 8 }]}>Saving Expense...</Text>
+                </View>
+              ) : (
+                <Text style={styles.saveBtnText}>Save Expense</Text>
+              )}
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
@@ -224,6 +392,24 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#E2E8F0',
   },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+    marginRight: 8,
+  },
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  titleContainer: {
+    flex: 1,
+  },
   title: {
     fontSize: 18,
     fontWeight: '700',
@@ -248,6 +434,25 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 18,
     gap: 14,
+  },
+  errorBanner: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#F87171',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 4,
+  },
+  errorBannerText: {
+    color: '#991B1B',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  fieldErrorText: {
+    color: '#DC2626',
+    fontSize: 12,
+    marginTop: 4,
+    fontWeight: '500',
   },
   row: {
     flexDirection: 'row',
@@ -284,29 +489,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#0F172A',
   },
+  inputError: {
+    borderColor: '#DC2626',
+    backgroundColor: '#FEF2F2',
+  },
   amountInput: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
-    color: '#2563EB',
+    color: '#1D4ED8',
   },
-  dateWrapper: {
-    height: 46,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  dateInput: {
-    flex: 1,
-    height: '100%',
-    fontSize: 14,
-    color: '#0F172A',
-  },
-  pillsWrap: {
+  grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
@@ -315,8 +507,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1.5,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
     borderColor: '#E2E8F0',
   },
   pillActive: {
@@ -356,5 +548,10 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  btnLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

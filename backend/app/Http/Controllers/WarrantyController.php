@@ -15,6 +15,13 @@ class WarrantyController extends Controller
             abort(403, 'Unauthorized');
         }
 
+        if (!$request->has('start_date') && $request->has('issue_date')) {
+            $request->merge(['start_date' => $request->input('issue_date')]);
+        }
+        if (!$request->has('expiry_date') && $request->has('valid_until')) {
+            $request->merge(['expiry_date' => $request->input('valid_until')]);
+        }
+
         $validated = $request->validate([
             'start_date' => 'nullable|date',
             'expiry_date' => 'required|date',
@@ -43,6 +50,6 @@ class WarrantyController extends Controller
             $warrantyData
         );
 
-        return response()->json($warranty);
+        return response()->json($warranty, 201);
     }
 }

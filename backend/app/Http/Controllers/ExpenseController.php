@@ -36,15 +36,21 @@ class ExpenseController extends Controller
         $vehicle = Vehicle::findOrFail($vehicleId);
         $this->checkOwnership($vehicle);
 
+        if (!$request->has('expense_date') && $request->has('date')) {
+            $request->merge(['expense_date' => $request->input('date')]);
+        }
+
         $validated = $request->validate([
-            'category' => 'required|in:other',
+            'category' => 'nullable|string|max:100',
             'expense_date' => 'required|date',
             'description' => 'required|string|max:255',
             'amount' => 'required|numeric|gt:0',
         ]);
 
+        $category = !empty($validated['category']) ? strtolower(trim($validated['category'])) : 'other';
+
         $expense = $vehicle->expenses()->create([
-            'category' => 'other',
+            'category' => $category,
             'expense_date' => $validated['expense_date'],
             'description' => $validated['description'],
             'amount' => $validated['amount'],

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Vehicle;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
@@ -28,6 +29,7 @@ class VehicleController extends Controller
 
     public function store(Request $request)
     {
+        $this->normalizeVehicleInput($request);
         $currentYear = (int) date('Y');
 
         $validated = $request->validate([
@@ -42,7 +44,7 @@ class VehicleController extends Controller
             'current_odometer' => 'required|numeric|min:0',
             
             'type' => 'nullable|string|max:100',
-            'model' => 'nullable|string|max:100',
+            'model' => 'required|string|max:100',
             'fuel_type' => 'nullable|string|max:50',
             'transmission' => 'nullable|string|max:50',
             'engine_capacity' => 'nullable|string|max:50',
@@ -54,28 +56,28 @@ class VehicleController extends Controller
             'owner_details' => 'nullable|string',
             'conditions_special_notes' => 'nullable|string',
             'absolute_owner' => 'nullable|string|max:150',
-            'cylinder_capacity' => 'nullable|integer|min:0',
+            'cylinder_capacity' => 'nullable|numeric|min:0',
             'vehicle_class' => 'nullable|string|max:100',
             'taxation_class' => 'nullable|string|max:100',
             'status_when_registered' => 'nullable|string|max:100',
             'country_of_origin' => 'nullable|string|max:100',
             'manufacturer_description' => 'nullable|string',
-            'wheel_base' => 'nullable|integer|min:0',
-            'overhang' => 'nullable|integer|min:0',
+            'wheel_base' => 'nullable|numeric|min:0',
+            'overhang' => 'nullable|numeric|min:0',
             'body_type' => 'nullable|string|max:100',
-            'year_of_manufacture' => "nullable|integer|min:1900|max:" . ($currentYear + 1),
+            'year_of_manufacture' => "nullable|numeric|min:1900|max:" . ($currentYear + 1),
             'colour' => 'nullable|string|max:100',
             'previous_owners' => 'nullable|string|max:100',
-            'seating_capacity' => 'nullable|integer|min:0',
-            'weight_kg' => 'nullable|integer|min:0',
+            'seating_capacity' => 'nullable|numeric|min:0',
+            'weight_kg' => 'nullable|numeric|min:0',
             'tyre_size' => 'nullable|string|max:100',
             'dimensions' => 'nullable|string|max:100',
             'internal_height' => 'nullable|string|max:100',
             'provincial_council' => 'nullable|string|max:100',
-            'date_of_first_registration' => 'nullable|date|before_or_equal:today',
+            'date_of_first_registration' => 'nullable|date',
             'taxes_payable' => 'nullable|string|max:100',
             'photo_url' => 'nullable|string',
-            'photo' => 'nullable|file|image|max:10240',
+            'photo' => 'nullable|file|mimes:jpeg,jpg,png,webp,gif,heic,pdf|max:10240',
 
             // Optional nested insurance
             'insurance_provider' => 'nullable|string',
@@ -160,6 +162,7 @@ class VehicleController extends Controller
         $vehicle = Vehicle::findOrFail($id);
         $this->checkOwnership($vehicle);
 
+        $this->normalizeVehicleInput($request);
         $currentYear = (int) date('Y');
 
         $validated = $request->validate([
@@ -175,7 +178,7 @@ class VehicleController extends Controller
             'current_odometer' => 'sometimes|required|numeric|min:0',
 
             'type' => 'nullable|string|max:100',
-            'model' => 'nullable|string|max:100',
+            'model' => 'sometimes|required|string|max:100',
             'fuel_type' => 'nullable|string|max:50',
             'transmission' => 'nullable|string|max:50',
             'engine_capacity' => 'nullable|string|max:50',
@@ -186,28 +189,28 @@ class VehicleController extends Controller
             'owner_details' => 'nullable|string',
             'conditions_special_notes' => 'nullable|string',
             'absolute_owner' => 'nullable|string|max:150',
-            'cylinder_capacity' => 'nullable|integer|min:0',
+            'cylinder_capacity' => 'nullable|numeric|min:0',
             'vehicle_class' => 'nullable|string|max:100',
             'taxation_class' => 'nullable|string|max:100',
             'status_when_registered' => 'nullable|string|max:100',
             'country_of_origin' => 'nullable|string|max:100',
             'manufacturer_description' => 'nullable|string',
-            'wheel_base' => 'nullable|integer|min:0',
-            'overhang' => 'nullable|integer|min:0',
+            'wheel_base' => 'nullable|numeric|min:0',
+            'overhang' => 'nullable|numeric|min:0',
             'body_type' => 'nullable|string|max:100',
-            'year_of_manufacture' => "nullable|integer|min:1900|max:" . ($currentYear + 1),
+            'year_of_manufacture' => "nullable|numeric|min:1900|max:" . ($currentYear + 1),
             'colour' => 'nullable|string|max:100',
             'previous_owners' => 'nullable|string|max:100',
-            'seating_capacity' => 'nullable|integer|min:0',
-            'weight_kg' => 'nullable|integer|min:0',
+            'seating_capacity' => 'nullable|numeric|min:0',
+            'weight_kg' => 'nullable|numeric|min:0',
             'tyre_size' => 'nullable|string|max:100',
             'dimensions' => 'nullable|string|max:100',
             'internal_height' => 'nullable|string|max:100',
             'provincial_council' => 'nullable|string|max:100',
-            'date_of_first_registration' => 'nullable|date|before_or_equal:today',
+            'date_of_first_registration' => 'nullable|date',
             'taxes_payable' => 'nullable|string|max:100',
             'photo_url' => 'nullable|string',
-            'photo' => 'nullable|file|image|max:10240',
+            'photo' => 'nullable|file|mimes:jpeg,jpg,png,webp,gif,heic,pdf|max:10240',
         ]);
 
         if ($request->hasFile('photo')) {
@@ -234,5 +237,59 @@ class VehicleController extends Controller
         $vehicle->delete();
 
         return response()->json(['message' => 'Vehicle deleted successfully']);
+    }
+
+    private function normalizeVehicleInput(Request $request): void
+    {
+        $intFields = [
+            'cylinder_capacity',
+            'wheel_base',
+            'overhang',
+            'year_of_manufacture',
+            'seating_capacity',
+            'weight_kg',
+        ];
+
+        $merge = [];
+        foreach ($intFields as $field) {
+            if (!$request->exists($field)) {
+                continue;
+            }
+
+            $value = $request->input($field);
+            if ($value === null || $value === '' || $value === 'null' || $value === 'NaN') {
+                $merge[$field] = null;
+                continue;
+            }
+
+            if (is_numeric($value)) {
+                $merge[$field] = (int) $value;
+                continue;
+            }
+
+            if (is_string($value) && preg_match('/-?\d+/', $value, $matches)) {
+                $merge[$field] = (int) $matches[0];
+                continue;
+            }
+
+            $merge[$field] = null;
+        }
+
+        if ($request->exists('date_of_first_registration')) {
+            $date = $request->input('date_of_first_registration');
+            if ($date === null || $date === '' || $date === 'null') {
+                $merge['date_of_first_registration'] = null;
+            } else {
+                try {
+                    $merge['date_of_first_registration'] = Carbon::parse($date)->toDateString();
+                } catch (\Throwable $e) {
+                    $merge['date_of_first_registration'] = null;
+                }
+            }
+        }
+
+        if ($merge) {
+            $request->merge($merge);
+        }
     }
 }

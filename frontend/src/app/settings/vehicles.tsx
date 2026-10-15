@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { MonoText } from '@/components/ui/MonoText';
+import { BackButton } from '@/components/ui/BackButton';
 import { Colors, FontSizes, MinTouchTarget, Radii, Spacing } from '@/constants/theme';
 import { useVehicle } from '@/context/VehicleContext';
 import { apiFetch } from '@/services/api';
@@ -56,12 +57,7 @@ export default function ManageVehiclesScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.headerBtn}
-          onPress={() => router.back()}
-          activeOpacity={0.7}>
-          <Text style={styles.backLink}>← Back</Text>
-        </TouchableOpacity>
+        <BackButton style={styles.headerBtn} fallbackRoute="/(tabs)/more" />
         <Text style={styles.headerTitle}>Manage Vehicles</Text>
         <TouchableOpacity
           style={styles.headerBtn}

@@ -1,9 +1,22 @@
 import React, { useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View, Animated, LayoutAnimation, Platform, UIManager } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
+import {
+  LayoutAnimation,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  UIManager,
+  View,
+  useWindowDimensions,
+} from 'react-native';
+import Svg, { Circle, Path } from 'react-native-svg';
+import { useAppTheme } from '@/context/ThemeContext';
+import { MinTouchTarget } from '@/constants/theme';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
+  if (!(globalThis as any).nativeFabricUIManager) {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+  }
 }
 
 export interface CollapsibleFormSectionProps {
@@ -12,11 +25,18 @@ export interface CollapsibleFormSectionProps {
   completedCount?: number;
   totalCount?: number;
   initiallyExpanded?: boolean;
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
+  showCompletedTick?: boolean;
+  showSkip?: boolean;
+  showNext?: boolean;
+  onSkip?: () => void;
+  onNext?: () => void;
   icon?: React.ReactNode;
   children: React.ReactNode;
 }
 
-const ChevronIcon = ({ expanded, color = '#6B7280' }: { expanded: boolean; color?: string }) => (
+const ChevronIcon = ({ expanded, color }: { expanded: boolean; color: string }) => (
   <Svg
     width={20}
     height={20}
@@ -27,27 +47,55 @@ const ChevronIcon = ({ expanded, color = '#6B7280' }: { expanded: boolean; color
   </Svg>
 );
 
+const CompletedTickIcon = ({ color, checkColor }: { color: string; checkColor: string }) => (
+  <Svg width={18} height={18} viewBox="0 0 24 24" accessibilityLabel="Section completed">
+    <Circle cx="12" cy="12" r="11" fill={color} />
+    <Path d="M7.5 12.2l3 3 6-6.4" stroke={checkColor} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+  </Svg>
+);
+
 export const CollapsibleFormSection: React.FC<CollapsibleFormSectionProps> = ({
   title,
   subtitle,
   completedCount,
   totalCount,
   initiallyExpanded = false,
+  expanded: expandedProp,
+  onExpandedChange,
+  showCompletedTick = false,
+  showSkip = false,
+  showNext = false,
+  onSkip,
+  onNext,
   icon,
   children,
 }) => {
-  const [expanded, setExpanded] = useState(initiallyExpanded);
+  const { theme } = useAppTheme();
+  const { width } = useWindowDimensions();
+  const stackFooter = width < 360;
+  const [internalExpanded, setInternalExpanded] = useState(initiallyExpanded);
+  const isControlled = expandedProp !== undefined;
+  const expanded = isControlled ? expandedProp : internalExpanded;
 
-  const toggleExpand = () => {
+  const setExpanded = (next: boolean) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setExpanded(!expanded);
+    if (!isControlled) setInternalExpanded(next);
+    onExpandedChange?.(next);
   };
+
+  const toggleExpand = () => setExpanded(!expanded);
 
   const isAllComplete = Boolean(totalCount && completedCount !== undefined && completedCount >= totalCount);
 
   return (
-    <View style={[styles.card, expanded && styles.cardExpanded]}>
-      {/* Accordion Header */}
+    <View
+      style={[
+        styles.card,
+        {
+          backgroundColor: theme.surface,
+          borderColor: expanded ? theme.blueDim : theme.border,
+        },
+      ]}>
       <TouchableOpacity
         style={styles.headerRow}
         activeOpacity={0.7}
@@ -55,85 +103,136 @@ export const CollapsibleFormSection: React.FC<CollapsibleFormSectionProps> = ({
         accessibilityRole="button"
         accessibilityLabel={`${title} section, ${expanded ? 'expanded' : 'collapsed'}`}>
         <View style={styles.headerLeft}>
-          {icon ? <View style={styles.iconCircle}>{icon}</View> : null}
-          <View style={{ flex: 1 }}>
+          {icon ? (
+            <View style={[styles.iconCircle, { backgroundColor: theme.blueSoft }]}>{icon}</View>
+          ) : null}
+          <View style={styles.headerTextWrap}>
             <View style={styles.titleRow}>
-              <Text style={styles.titleText}>{title}</Text>
+              <Text style={[styles.titleText, { color: theme.textPrimary }]} numberOfLines={2}>
+                {title}
+              </Text>
               {totalCount !== undefined && completedCount !== undefined ? (
-                <View style={[styles.statusBadge, isAllComplete && styles.statusBadgeComplete]}>
-                  <Text style={[styles.statusBadgeText, isAllComplete && styles.statusBadgeTextComplete]}>
-                    {completedCount}/{totalCount} {isAllComplete ? '✓' : ''}
+                <View
+                  style={[
+                    styles.statusBadge,
+                    { backgroundColor: isAllComplete ? theme.successBg : theme.iconBg },
+                  ]}>
+                  <Text
+                    style={[
+                      styles.statusBadgeText,
+                      { color: isAllComplete ? theme.success : theme.textMuted },
+                    ]}>
+                    {completedCount}/{totalCount}
                   </Text>
                 </View>
               ) : null}
             </View>
-            {subtitle ? <Text style={styles.subtitleText}>{subtitle}</Text> : null}
+            {subtitle ? (
+              <Text style={[styles.subtitleText, { color: theme.textMuted }]} numberOfLines={2}>
+                {subtitle}
+              </Text>
+            ) : null}
           </View>
         </View>
 
-        <View style={styles.chevronBox}>
-          <ChevronIcon expanded={expanded} color={expanded ? '#2563EB' : '#6B7280'} />
+        <View style={styles.headerRight}>
+          {showCompletedTick ? (
+            <View accessibilityLabel="Section completed">
+              <CompletedTickIcon color={theme.success} checkColor={theme.onSuccess} />
+            </View>
+          ) : null}
+          <View style={[styles.chevronBox, { backgroundColor: theme.surface2 }]}>
+            <ChevronIcon expanded={expanded} color={expanded ? theme.primaryBlue : theme.textMuted} />
+          </View>
         </View>
       </TouchableOpacity>
 
-      {/* Accordion Content */}
-      {expanded ? <View style={styles.contentBody}>{children}</View> : null}
+      {expanded ? (
+        <View style={[styles.contentBody, { borderTopColor: theme.borderSoft }]}>
+          {children}
+
+          {showSkip || showNext ? (
+            <View style={[styles.footer, { borderTopColor: theme.border }]}>
+              <View style={[styles.footerRow, stackFooter && styles.footerCol]}>
+                {showNext ? (
+                  <TouchableOpacity
+                    style={[
+                      styles.footerBtn,
+                      styles.nextBtn,
+                      { borderColor: theme.primaryBlue },
+                      stackFooter && styles.footerBtnFull,
+                    ]}
+                    activeOpacity={0.75}
+                    onPress={onNext}
+                    accessibilityRole="button"
+                    accessibilityLabel="Next section">
+                    <Text
+                      style={[styles.footerBtnText, { color: theme.primaryBlue }]}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.85}>
+                      Next section
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+                {showSkip ? (
+                  <TouchableOpacity
+                    style={[
+                      styles.footerBtn,
+                      showNext ? styles.skipBtnBeside : styles.skipBtnFull,
+                      stackFooter && styles.footerBtnFull,
+                    ]}
+                    activeOpacity={0.75}
+                    onPress={onSkip}
+                    accessibilityRole="button"
+                    accessibilityLabel="Skip for now">
+                    <Text
+                      style={[styles.footerBtnText, { color: theme.primaryBlue }]}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.85}>
+                      Skip for now
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#E5EAF2',
     marginVertical: 6,
     overflow: 'hidden',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#0F172A',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.05,
-        shadowRadius: 10,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
-  },
-  cardExpanded: {
-    borderColor: '#BFDBFE',
-    backgroundColor: '#FFFFFF',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#2563EB',
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.08,
-        shadowRadius: 12,
-      },
-      android: {
-        elevation: 4,
-      },
-    }),
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: 16,
+    gap: 8,
   },
   headerLeft: {
     flex: 1,
+    minWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+  },
+  headerTextWrap: {
+    flex: 1,
+    minWidth: 0,
   },
   iconCircle: {
     width: 38,
     height: 38,
     borderRadius: 12,
-    backgroundColor: '#EFF6FF',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -144,48 +243,84 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   titleText: {
+    flexShrink: 1,
     fontSize: 15,
     fontWeight: '800',
-    color: '#111827',
     letterSpacing: -0.2,
   },
   subtitleText: {
     fontSize: 12,
     fontWeight: '500',
-    color: '#6B7280',
     marginTop: 2,
   },
   statusBadge: {
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 10,
-    backgroundColor: '#F1F5F9',
-  },
-  statusBadgeComplete: {
-    backgroundColor: '#DCFCE7',
   },
   statusBadgeText: {
     fontSize: 10.5,
     fontWeight: '800',
-    color: '#64748B',
   },
-  statusBadgeTextComplete: {
-    color: '#16A34A',
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 0,
   },
   chevronBox: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#F8FAFC',
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 8,
   },
   contentBody: {
     paddingHorizontal: 16,
-    paddingBottom: 18,
+    paddingBottom: 10,
     paddingTop: 4,
     borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
+  },
+  footer: {
+    marginTop: 8,
+    paddingTop: 4,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  footerRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 8,
+  },
+  footerCol: {
+    flexDirection: 'column',
+  },
+  footerBtn: {
+    minHeight: MinTouchTarget,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  footerBtnFull: {
+    width: '100%',
+    alignSelf: 'stretch',
+  },
+  nextBtn: {
+    flex: 1,
+    minWidth: 0,
+    borderWidth: 1.5,
+    borderRadius: 12,
+  },
+  skipBtnFull: {
+    flex: 1,
+    width: '100%',
+  },
+  skipBtnBeside: {
+    flex: 1,
+    minWidth: 0,
+  },
+  footerBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    textAlign: 'center',
   },
 });

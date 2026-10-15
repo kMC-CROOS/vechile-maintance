@@ -20,6 +20,7 @@ import { useVehicle } from '@/context/VehicleContext';
 import { apiFetch } from '@/services/api';
 import { dataCache } from '@/services/dataCache';
 import { formatCurrency, formatDate } from '@/utils/format';
+import { BackButton } from '@/components/ui/BackButton';
 
 export interface ExpenseRecord {
   id: number;
@@ -113,17 +114,17 @@ const EXPENSE_CATEGORIES = [
   'Service',
   'Repair',
   'Parking',
-  'Toll',
+  'Expressway Toll',
   'Insurance',
-  'Washing',
+  'Vehicle Wash',
   'Accessories',
-  'Fines',
-  'Tax',
-  'Loan EMI',
+  'Traffic Fine',
+  'Revenue Licence',
+  'Leasing / Loan',
   'Other',
 ];
 
-const PAYMENT_METHODS = ['UPI', 'Cash', 'Card', 'NetBanking', 'Other'];
+const PAYMENT_METHODS = ['Cash', 'Card', 'LankaQR', 'Bank Transfer', 'Other'];
 
 const FILTER_CATEGORIES = ['ALL', 'FUEL', 'SERVICE', 'REPLACEMENT', 'PARKING', 'TOLL', 'OTHER'];
 
@@ -249,7 +250,7 @@ export default function ExpensesScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      fetchExpenses();
+      fetchExpenses(true);
     }, [fetchExpenses])
   );
 
@@ -421,12 +422,21 @@ export default function ExpensesScreen() {
       case 'parking':
         return { bg: '#F3E8FF', text: '#7E22CE', border: '#E9D5FF' };
       case 'toll':
+      case 'expressway toll':
         return { bg: '#E0F2FE', text: '#0369A1', border: '#BAE6FD' };
       case 'insurance':
       case 'tax':
+      case 'revenue licence':
         return { bg: '#FEE2E2', text: '#B91C1C', border: '#FECACA' };
       case 'washing':
+      case 'vehicle wash':
         return { bg: '#E0E7FF', text: '#4338CA', border: '#C7D2FE' };
+      case 'fines':
+      case 'traffic fine':
+        return { bg: '#FEE2E2', text: '#B91C1C', border: '#FECACA' };
+      case 'loan emi':
+      case 'leasing / loan':
+        return { bg: '#FEF3C7', text: '#B45309', border: '#FDE68A' };
       default:
         return { bg: '#F1F5F9', text: '#475569', border: '#E2E8F0' };
     }
@@ -442,7 +452,8 @@ export default function ExpensesScreen() {
       const matchesCategory =
         cat === 'all' ||
         (cat === 'replacement' && (itemCat === 'replacement' || itemCat === 'repair')) ||
-        (cat === 'other' && !['fuel', 'service', 'replacement', 'repair', 'parking', 'toll'].includes(itemCat)) ||
+        (cat === 'toll' && (itemCat === 'toll' || itemCat === 'expressway toll')) ||
+        (cat === 'other' && !['fuel', 'service', 'replacement', 'repair', 'parking', 'toll', 'expressway toll'].includes(itemCat)) ||
         itemCat === cat;
 
       const matchesSearch =
@@ -472,34 +483,37 @@ export default function ExpensesScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         {/* Top Header */}
         <View style={styles.header}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.title}>Expenses Ledger</Text>
-            <Text style={styles.subtitle}>
-              {activeVehicle
-                ? `${activeVehicle.brand || ''} ${activeVehicle.model || ''} (${activeVehicle.registration_number || ''})`.trim()
-                : 'Track routine, operational, and custom vehicle expenses'}
-            </Text>
+          <BackButton style={styles.backButton} />
+          <View style={styles.headerRow}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text style={styles.title}>Expenses Ledger</Text>
+              <Text style={styles.subtitle}>
+                {activeVehicle
+                  ? `${activeVehicle.brand || ''} ${activeVehicle.model || ''} (${activeVehicle.registration_number || ''})`.trim()
+                  : 'Track routine, operational, and custom vehicle expenses'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.addBtn, showForm && styles.addBtnActive]}
+              activeOpacity={0.8}
+              onPress={(e: any) => {
+                e?.preventDefault?.();
+                e?.stopPropagation?.();
+                setShowForm((prev) => !prev);
+              }}>
+              {showForm ? (
+                <>
+                  <CloseIcon color="#FFFFFF" />
+                  <Text style={styles.addBtnText}>Close</Text>
+                </>
+              ) : (
+                <>
+                  <PlusIcon />
+                  <Text style={styles.addBtnText}>+ Add Other</Text>
+                </>
+              )}
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity
-            style={[styles.addBtn, showForm && styles.addBtnActive]}
-            activeOpacity={0.8}
-            onPress={(e: any) => {
-              e?.preventDefault?.();
-              e?.stopPropagation?.();
-              setShowForm((prev) => !prev);
-            }}>
-            {showForm ? (
-              <>
-                <CloseIcon color="#FFFFFF" />
-                <Text style={styles.addBtnText}>Close</Text>
-              </>
-            ) : (
-              <>
-                <PlusIcon />
-                <Text style={styles.addBtnText}>+ Add Other</Text>
-              </>
-            )}
-          </TouchableOpacity>
         </View>
 
         <ScrollView
@@ -1022,15 +1036,22 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 12 : 18,
+    paddingTop: Platform.OS === 'ios' ? 8 : 12,
     paddingBottom: 16,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E2E8F0',
+  },
+  backButton: {
+    alignSelf: 'flex-start',
+    marginBottom: 4,
+    marginLeft: -4,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   title: {
     fontSize: 22,

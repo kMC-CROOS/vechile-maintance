@@ -15,9 +15,19 @@ class TaxController extends Controller
             abort(403, 'Unauthorized');
         }
 
+        if (!$request->has('valid_until') && $request->has('expiry_date')) {
+            $request->merge(['valid_until' => $request->input('expiry_date')]);
+        }
+        if (!$request->has('amount_paid') && $request->has('amount')) {
+            $request->merge(['amount_paid' => $request->input('amount')]);
+        }
+        if (!$request->has('amount_paid')) {
+            $request->merge(['amount_paid' => 0]);
+        }
+
         $validated = $request->validate([
             'valid_until' => 'required|date',
-            'amount_paid' => 'required|numeric|min:0',
+            'amount_paid' => 'nullable|numeric|min:0',
             'document' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:10240',
         ]);
 
@@ -29,7 +39,7 @@ class TaxController extends Controller
 
         $taxData = [
             'valid_until' => $validated['valid_until'],
-            'amount_paid' => $validated['amount_paid'],
+            'amount_paid' => $validated['amount_paid'] ?? 0,
         ];
 
         if ($documentPath) {
@@ -41,6 +51,6 @@ class TaxController extends Controller
             $taxData
         );
 
-        return response()->json($tax);
+        return response()->json($tax, 201);
     }
 }

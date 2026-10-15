@@ -30,6 +30,8 @@ export interface ThemeColors {
   inputBorder: string;
   sectionHeader: string;
   success: string;
+  successBg: string;
+  onSuccess: string;
   warning: string;
   error: string;
   cardShadow: string;
@@ -64,6 +66,8 @@ export const LightThemeColors: ThemeColors = {
   inputBorder: '#CBD5E1',
   sectionHeader: '#1E293B',
   success: '#16A34A',
+  successBg: '#DCFCE7',
+  onSuccess: '#FFFFFF',
   warning: '#D97706',
   error: '#DC2626',
   cardShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
@@ -97,6 +101,8 @@ export const DarkThemeColors: ThemeColors = {
   inputBorder: '#2B3D63',
   sectionHeader: '#94A3B8',
   success: '#22C55E',
+  successBg: 'rgba(34, 197, 94, 0.18)',
+  onSuccess: '#F8FAFC',
   warning: '#F59E0B',
   error: '#EF4444',
   cardShadow: '0 4px 12px rgba(0, 0, 0, 0.35)',

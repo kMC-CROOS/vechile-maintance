@@ -29,6 +29,20 @@ class ServiceController extends Controller
         $vehicle = Vehicle::findOrFail($vehicleId);
         $this->checkOwnership($vehicle);
 
+        // Normalize parameter aliases for maximum compatibility
+        if (!$request->has('total_cost') && $request->has('cost')) {
+            $request->merge(['total_cost' => $request->input('cost')]);
+        }
+        if (!$request->has('services_performed') && $request->has('services')) {
+            $request->merge(['services_performed' => $request->input('services')]);
+        }
+        if (!$request->has('workshop_name') && $request->has('workshop')) {
+            $request->merge(['workshop_name' => $request->input('workshop')]);
+        }
+        if (!$request->has('next_service_due_odometer') && $request->has('next_due_km')) {
+            $request->merge(['next_service_due_odometer' => $request->input('next_due_km')]);
+        }
+
         $validated = $request->validate([
             'service_date' => 'required|date',
             'odometer' => 'required|numeric|min:0',
